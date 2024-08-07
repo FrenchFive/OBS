@@ -16,7 +16,10 @@ Here is some code i created w/ chat for streaming.
 ---
 ## COUNTER 
 
-Created a simple counter script, that creates a text file to display on **OBS** based on a sample text, and increment it every time it is run. 
+A counting script to count Death or Crashes and display it on stream.
+
+Works using **OBS** and **STREAMDECK** 
+<br><sub> Can be used in any other software.</sub>
 <p align="center">
     <img src="https://github.com/user-attachments/assets/2785f589-79cc-4eee-8cdb-a61217403f5d" >
 </p>

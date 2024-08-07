@@ -1,2 +1,6 @@
 # OBS
-Some code i dev for STREAM 
+
+Here is some code i create w/ chat 
+
+
+Some utilities may be required.

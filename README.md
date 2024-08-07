@@ -17,3 +17,6 @@ Here is some code i created w/ chat for streaming.
 ## COUNTER 
 
 Created a simple counter script, that creates a text file to display on **OBS** based on a sample text, and increment it every time it is run. 
+<p align="center">
+    <img src="https://github.com/user-attachments/assets/2785f589-79cc-4eee-8cdb-a61217403f5d" >
+</p>

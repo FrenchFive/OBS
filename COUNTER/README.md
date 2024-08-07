@@ -27,3 +27,4 @@ There is 2 different scripts. The main one is ``` counter.py ```, it generates t
 
 - 1 - Create an "OPEN" Action under the System Tab. 
 - 2 - Point the action to the ``` counter.py ``` script.
+- 3 - **OPTIONAL** - Do the same for the ``` reset.py ``` Script

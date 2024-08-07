@@ -11,6 +11,10 @@ There is 2 different scripts. The main one is ``` counter.py ```, it generates t
 
 ---
 
+This script was created to work with **OBS** and **STREAMDECK** but is flexible to work with any other software able to run Python script and display text based on a txt file.
+
+---
+
 ## SETUP 
 
 - 1 - Be sure to have Python
@@ -28,3 +32,6 @@ There is 2 different scripts. The main one is ``` counter.py ```, it generates t
 - 1 - Create an "OPEN" Action under the System Tab. 
 - 2 - Point the action to the ``` counter.py ``` script.
 - 3 - **OPTIONAL** - Do the same for the ``` reset.py ``` Script
+
+---
+Created live on the 07/08/2024 

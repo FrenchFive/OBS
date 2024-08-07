@@ -6,8 +6,12 @@ with open('obs.password', 'r') as file:
 obs_server_address = secretdata[0]
 obs_server_password = secretdata[1]
 
-
-
 client = obsws(obs_server_address, 4455, obs_server_password)
 client.connect()
-print(client.call(requests.GetVersion()).getObsVersion())
+
+def get_version():
+    return(client.call(requests.GetVersion()).getObsVersion())
+
+def get_scene_list():
+    scene_list = client.call(requests.GetSceneList())
+    return scene_list.getScenes()

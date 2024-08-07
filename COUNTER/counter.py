@@ -1,4 +1,5 @@
 import os 
+import time
 
 path = os.path.dirname(os.path.realpath(__file__))
 
@@ -36,3 +37,5 @@ else:
 count = ' '.join(sample_list)
 with open(path + '/count.txt', 'w') as file:
     file.write(count)
+
+time.sleep(0.5)

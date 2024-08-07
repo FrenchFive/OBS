@@ -11,6 +11,7 @@ Here is some code i created w/ chat for streaming.
 - [ ] ORION
     - Add to the Git Repo (Clean it)
     - Press Space Bar (!space)
+    - Wordle too
 - [ ] MESSAGE VISUALISATION
 
 ---

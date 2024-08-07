@@ -1,6 +1,6 @@
 # OBS
 
-Here is some code i create w/ chat for stream
+Here is some code i created w/ chat for streaming
 
 > [!WARNING]  
 > Some utilities/plugins/modules may be required.

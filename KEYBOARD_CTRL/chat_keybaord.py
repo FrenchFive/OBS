@@ -25,7 +25,6 @@ def check_allowed_shortcuts(allowed):
     return allowed
 
 allowed = check_allowed_shortcuts(allowed)
-print(allowed)
 
 class ChatKeyboard(commands.Bot):
     def __init__(self):
@@ -43,7 +42,7 @@ class ChatKeyboard(commands.Bot):
         if self.active==True:
             if str(message.content).startswith("!") and key in allowed:
                 print(f'{str(message.author.name).capitalize()} PRESSED :: {key.upper()} || {datetime.datetime.now().strftime("%H:%M:%S")}')
-                #keyboard.press_and_release(key)
+                keyboard.press_and_release(key)
 
 def check_pause(bot):
     var = True

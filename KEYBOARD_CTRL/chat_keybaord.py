@@ -12,11 +12,6 @@ with open(path+"/secret-twitch.password") as file:
 
 allowed = ['space']
 
-def hotkey(key):
-    if key in allowed:
-        keyboard.press_and_release(key)
-        return False
-
 class ChatKeyboard(commands.Bot):
     def __init__(self):
         super().__init__(token=token, prefix='!', initial_channels=['french_five'])
@@ -31,8 +26,7 @@ class ChatKeyboard(commands.Bot):
 
         if str(message.content).startswith("!") and key in allowed:
             print(f'{str(message.author.name).capitalize()} PRESSED :: {key.upper()} || {datetime.datetime.now().strftime("%H:%M:%S")}')
-            time.sleep(1)
-            hotkey(key)
+            keyboard.press_and_release(key)
         
         return
     

@@ -22,3 +22,16 @@ Works using **OBS** and **STREAMDECK**
 <p align="center">
     <img src="https://github.com/user-attachments/assets/2785f589-79cc-4eee-8cdb-a61217403f5d" >
 </p>
+
+---
+## ORION
+
+AI Chat Bot running in Python.
+<br> Reads messages, respond to basic commands, and chat in Twitch.
+<br> Uses ChatGpt3
+
+
+---
+## KEYBOARD CONTROL
+
+A code that lets Chat control the keyboard. 

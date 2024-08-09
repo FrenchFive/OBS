@@ -35,13 +35,19 @@ openairead.close()
 openai.api_key = openaikey
 
 
+
 #TWITCH INFO
 def streaminfo():
+    with open(path+"/secret-twitchinfo-auth.password") as file:
+        streaminfo_auth = file.read().replace('\n', '')
+    with open(path+"/secret-twitchinfo-clientid.password") as file:
+        streaminfo_clientid = file.read().replace('\n', '')
+    
     url = 'https://api.twitch.tv/helix/streams?user_login=french_five'
 
     headers = {
-        'Authorization': 'Bearer y013e2ghtg3u9bdf6d5uzejbhw1sb0',
-        'Client-Id': 'gp762nuuoqcoxypju8c569th9wz7q5'
+        'Authorization': streaminfo_auth,
+        'Client-Id': streaminfo_clientid
     }
 
     response = requests.get(url, headers=headers)

@@ -39,6 +39,8 @@ AI Chat Bot running in Python.
 ## KEYBOARD CONTROL
 
 A code that lets Chat control the keyboard. 
+
 ![image](https://github.com/user-attachments/assets/94398b47-4f3f-46d2-a62c-112e77cabd35)
 ![image](https://github.com/user-attachments/assets/69ec16f2-6d54-4017-a0a6-29ae286feebf)
 
+---

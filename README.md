@@ -30,6 +30,10 @@ AI Chat Bot running in Python.
 <br> Reads messages, respond to basic commands, and chat in Twitch.
 <br> Uses ChatGpt3
 
+![image](https://github.com/user-attachments/assets/1ed5d9d4-2fcf-4128-a44b-4d170198d347)
+![image](https://github.com/user-attachments/assets/2f7b1351-090b-4aa9-a312-0c6591009b9e)
+
+
 
 ---
 ## KEYBOARD CONTROL

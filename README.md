@@ -9,8 +9,7 @@ Here is some code i created w/ chat for streaming.
 ### TASKS 
 - [x] COUNTER
 - [x] ORION
-    - Add to the Git Repo (Clean it)
-- [ ] CHAT CONTROL KEYBOARD 
+- [x] CHAT CONTROL KEYBOARD 
 - [ ] MESSAGE VISUALISATION
 
 ---

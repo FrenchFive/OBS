@@ -207,10 +207,6 @@ class Orion(commands.Bot):
             detected=-1
             luck=0
 
-        #DETECTION DE XAVIER
-        if message.author.name == "neoneolithes":
-            luck=100
-
         global luckprob
         if detected != -1 or luck>=luckprob:
             if detected != -1:

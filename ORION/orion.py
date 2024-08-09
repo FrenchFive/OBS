@@ -187,12 +187,14 @@ class Orion(commands.Bot):
         
         luck = random.randint(1,100)
         detected = isorion(message.content)
+        command = False
         #DETECTION DES COMMANDES
         if str(message.content).startswith("#") or str(message.content).startswith("!"):
+            command = True
             luck = 0
             detected = -1
 
-        if self.tts == True and detected != -1:
+        if self.tts == True and command == False:
             speak(message.content)
 
         global chathistory

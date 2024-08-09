@@ -167,7 +167,7 @@ class Orion(commands.Bot):
         # prefix can be a callable, which returns a list of strings or a string...
         # initial_channels can also be a callable which returns a list of strings...
         global twitchkey
-        super().__init__(token=twitchkey, prefix='!', initial_channels=['french_five'])
+        super().__init__(token=twitchkey, prefix='#', initial_channels=['french_five'])
         self.tts = True  # Add a running flag
 
     async def event_ready(self):
@@ -179,7 +179,14 @@ class Orion(commands.Bot):
         if message.echo:
             return
         
-        if self.tts == True:
+        luck = random.randint(1,100)
+        detected = isorion(message.content)
+        #DETECTION DES COMMANDES
+        if str(message.content).startswith("#") or str(message.content).startswith("!"):
+            luck = 0
+            detected = -1
+
+        if self.tts == True and detected != -1:
             speak(message.content)
 
         global chathistory
@@ -199,13 +206,6 @@ class Orion(commands.Bot):
         print("READ FROM : "+message.author.name+" | "+timestring)
         chathistory.append({'role':'user','content': message.author.name+' : '+message.content})
         
-        luck = random.randint(1,100)
-        detected = isorion(message.content)
-
-        #DETECTION DES COMMANDES
-        if message.content == "!orion" or message.content == "!social":
-            detected=-1
-            luck=0
 
         global luckprob
         if detected != -1 or luck>=luckprob:

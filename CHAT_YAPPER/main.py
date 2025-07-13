@@ -3,6 +3,11 @@ import time
 import os 
 from dotenv import load_dotenv
 
+from openai import OpenAI
+import random
+
+from pydub import AudioSegment
+
 import obsws_python as obs
 import json
 
@@ -22,6 +27,7 @@ APP_ID = os.getenv('TWITCH_ID')
 APP_SECRET = os.getenv('TWITCH_SECRET')
 USER_SCOPE = [AuthScope.CHAT_READ, AuthScope.CHAT_EDIT]
 TARGET_CHANNEL = 'french_five'
+KEY_OPENAI = os.getenv("KEY_OPENAI")
 
 CLIENT = obs.ReqClient(host='localhost', port=4455, password='', timeout=3)
 
@@ -33,13 +39,53 @@ def tts(text):
     engine.runAndWait()
     engine.stop()
 
+def openai_tts(text):
+    voices = [ 
+        "alloy",
+        "ash",
+        "ballad",
+        "coral",
+        "echo",
+        "fable",
+        "nova",
+        "onyx",
+        "sage",
+        "shimmer"
+    ]
+
+    instructions = [
+        "Speak in a cheerful and positive tone.",
+        "Speak as a pirate captain, with a commanding and adventurous tone.",
+        "Speak as a wise old sage, with a calm and thoughtful tone.",
+        "Speak as a friendly robot, with a jerky rhythm and a mechanical tone.",
+        "Speak as a dramatic storyteller, with a deep and engaging tone.",
+        "Extremely excited as if you were about to explode."
+    ]
+
+    client = OpenAI(api_key=KEY_OPENAI)
+    speech_file_path = f'{script_path}/tts.wav'
+
+    with client.audio.speech.with_streaming_response.create(
+        model="gpt-4o-mini-tts",
+        voice=random.choice(voices),
+        input=text,
+        instructions=random.choice(instructions),
+        response_format="wav",
+    ) as response:
+        response.stream_to_file(speech_file_path)
+    
+
+
 def audio_duration():
     file_path = f'{script_path}/tts.wav'
-    with wave.open(file_path, 'rb') as wf:
-        frames = wf.getnframes()
-        rate = wf.getframerate()
-        duration = frames / float(rate)
-    return duration
+    try:
+        audio = AudioSegment.from_file(file_path)
+        duration = len(audio) / 1000.0  # duration in seconds
+        return duration
+    except Exception as e:
+        print(f"⚠️ Could not read audio duration: {e}")
+        return 0
+
 
 def obs_activate(scene, item_name, enable):
     cl = CLIENT
@@ -70,21 +116,44 @@ def obs_getCurrentScene():
 
 def show_tts(message, author):
     current_scene = obs_getCurrentScene()
-    tts(message)
+    openai_tts(message)
+    duration = audio_duration()
+    print(f"Audio duration: {duration}")
 
     obs_setInput("PYTHON_TTS", "local_file", f'{script_path}/tts.wav')
+    obs_activate(current_scene, "PYTHON_TTS", False)
     obs_setInput("PYTHON_AUTHOR", "text", author)
     
     obs_activate(current_scene, "CHAT_YAPPING", True)
-    obs_activate(current_scene, "PYTHON_TTS", True)
+    CLIENT.set_input_mute("PYTHON_TTS", False)
     
-    time.sleep(audio_duration() + 0.2)
+    time.sleep(duration + 0.2)
 
     obs_activate(current_scene, "CHAT_YAPPING", False)
-    obs_activate(current_scene, "PYTHON_TTS", False)
+    CLIENT.set_input_mute("PYTHON_TTS", True)
 
     obs_setInput("PYTHON_TTS", "local_file", f'{script_path}/tts_empty.wav')
 
+def strip_emotes(text: str, emotes: dict) -> str:
+    if not emotes:
+        return text
+
+    # Flatten the emote positions into a list of (start, end) tuples
+    ranges = []
+    for positions in emotes.values():
+        for pos in positions:
+            start = int(pos['start_position'])
+            end = int(pos['end_position']) + 1  # +1 because string slicing is exclusive at the end
+            ranges.append((start, end))
+
+    # Sort ranges from last to first to avoid messing up indexes
+    ranges.sort(reverse=True)
+
+    # Remove the emotes from the text
+    for start, end in ranges:
+        text = text[:start] + text[end:]
+
+    return ' '.join(text.split())  # Clean up any extra whitespace
 
 
 # TWITCH API
@@ -99,7 +168,10 @@ async def on_ready(ready_event: EventData):
 # this will be called whenever a message in a channel was send by either the bot OR another user
 async def on_message(msg: ChatMessage):
     print(f'{msg.user.name} said: {msg.text}')
-    show_tts(msg.text, msg.user.name)
+    text = strip_emotes(msg.text, msg.emotes)[:1000].strip()  # Limit to 1000 characters and strip whitespace
+    if len(text) > 0:
+        show_tts(text, msg.user.name)
+    
 
 # this is where we set up the bot
 async def run():

@@ -22,6 +22,7 @@ import json
 import os
 import random
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -81,6 +82,17 @@ load_dotenv()
 CHAT_CONNECT_WS = os.getenv("CHAT_CONNECT_URL", "ws://127.0.0.1:2428/ws")
 KEY_OPENAI = os.getenv("KEY_OPENAI")
 
+# ElevenLabs (optional): set ELEVENLABS_API_KEY in .env to use their voices.
+KEY_ELEVENLABS = os.getenv("ELEVENLABS_API_KEY")
+ELEVENLABS_MODEL = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5")
+# Premade voices every ElevenLabs account has; override with your own ids
+# via ELEVENLABS_VOICE_IDS=id1,id2 (one id = always that voice)
+ELEVENLABS_VOICES = [v.strip() for v in os.getenv(
+    "ELEVENLABS_VOICE_IDS",
+    "21m00Tcm4TlvDq8ikWAM,pNInz6obpgDQGcFmaJgB,ErXwobaYiN019PkySvjV,"
+    "EXAVITQu4vr4xnSDxMaL,TxGEqnHWrfWFTfGW9XjX,MF3mGyEYCl7XYWbV9V6O"
+).split(",") if v.strip()]
+
 OBS_HOST = os.getenv("OBS_HOST", "localhost")
 OBS_PORT = int(os.getenv("OBS_PORT", "4455"))
 OBS_PASSWORD = os.getenv("OBS_PASSWORD", "")
@@ -96,7 +108,7 @@ SRC_MEDIA = "PYTHON_TTS"       # media source that plays tts.wav
 SRC_AUTHOR = "PYTHON_AUTHOR"   # text source showing who is talking
 SRC_GROUP = "CHAT_YAPPING"     # group/scene item with the duck + text
 
-VOICE_MODE = "OpenAI voices" if KEY_OPENAI else "offline voice (no KEY_OPENAI in .env)"
+TEXT_FILE = f"{script_path}/tts_text.txt"
 
 # Follow mode (set by the OBS auto-launcher): once CHAT CONNECT has been
 # seen alive, exit when it goes away instead of retrying forever - closing
@@ -130,16 +142,20 @@ _warned = set()
 
 
 def refresh_status():
+    voice = f"voice: {VOICE_LABEL}"
     if COMP["obs"] != "ok":
         state, detail = "waiting-obs", ("waiting for OBS - enable Tools > WebSocket "
                                         f"Server Settings (port {OBS_PORT})")
     elif COMP["sources"]:
         state, detail = "error", COMP["sources"]
+    elif VOICE_LABEL == "no working voice":
+        state, detail = "error", ("no TTS voice works - re-run install.bat "
+                                  "(see yapper.log for details)")
     elif COMP["chat"] != "ok":
-        state, detail = "ready", f"OBS ok - waiting for CHAT CONNECT · {VOICE_MODE}"
+        state, detail = "ready", f"OBS ok - waiting for CHAT CONNECT · {voice}"
     else:
         state = "connected"
-        detail = f"reading Twitch + YouTube · {VOICE_MODE}"
+        detail = f"reading Twitch + YouTube · {voice}"
         if COMP["last_error"]:
             detail += f" · last problem: {COMP['last_error']}"
     if (STATUS["state"], STATUS["detail"]) != (state, detail):
@@ -268,13 +284,40 @@ def ensure_empty_wav():
 
 
 # ------------------------------------------------------------------- TTS
+#
+# Voice engines in fallback order. If one breaks (bad key, broken package)
+# the Duck moves to the next one and keeps talking:
+#   1. ElevenLabs              (only if ELEVENLABS_API_KEY is set)
+#   2. OpenAI voices           (only if KEY_OPENAI is set)
+#   3. Windows built-in voice  (PowerShell System.Speech - needs NO packages)
+#   4. pyttsx3                 (last resort, non-Windows offline voice)
 
-def tts_pyttsx3(text):
-    import pyttsx3
-    engine = pyttsx3.init()
-    engine.save_to_file(text, TTS_FILE)
-    engine.runAndWait()
-    engine.stop()
+def tts_elevenlabs(text):
+    """ElevenLabs TTS through their plain REST API - no extra packages."""
+    import urllib.error
+    import urllib.request
+
+    voice = random.choice(ELEVENLABS_VOICES)
+    url = (f"https://api.elevenlabs.io/v1/text-to-speech/{voice}"
+           f"?output_format=pcm_24000")
+    body = json.dumps({"text": text, "model_id": ELEVENLABS_MODEL}).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers={
+        "xi-api-key": KEY_ELEVENLABS,
+        "Content-Type": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            pcm = resp.read()
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")[:200]
+        raise RuntimeError(f"ElevenLabs HTTP {e.code}: {detail}") from None
+    if len(pcm) < 200:
+        raise RuntimeError("ElevenLabs returned no audio")
+    with wave.open(TTS_FILE, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(24000)
+        w.writeframes(pcm)
 
 
 def tts_openai(text):
@@ -302,29 +345,116 @@ def tts_openai(text):
         response.stream_to_file(TTS_FILE)
 
 
+def tts_windows(text):
+    """Windows' built-in voice via PowerShell. No Python packages, no DLLs."""
+    with open(TEXT_FILE, "w", encoding="utf-8-sig") as f:
+        f.write(text)
+    ps_text = TEXT_FILE.replace("'", "''")
+    ps_wav = TTS_FILE.replace("'", "''")
+    script = (
+        "Add-Type -AssemblyName System.Speech; "
+        f"$t = Get-Content -Raw -Encoding UTF8 '{ps_text}'; "
+        "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+        f"$s.SetOutputToWaveFile('{ps_wav}'); "
+        "$s.Speak($t); $s.Dispose()"
+    )
+    subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        check=True, timeout=60,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def tts_pyttsx3(text):
+    import pyttsx3
+    engine = pyttsx3.init()
+    engine.save_to_file(text, TTS_FILE)
+    engine.runAndWait()
+    engine.stop()
+
+
+VOICE_HINTS = {
+    "elevenlabs": ("check ELEVENLABS_API_KEY in CHAT_YAPPER/.env "
+                   "(or your ElevenLabs character quota)"),
+    "openai": ("check KEY_OPENAI in CHAT_YAPPER/.env; if the error mentions a "
+               "missing module, re-run install.bat (it repairs itself)"),
+    "windows": "PowerShell / System.Speech is unavailable on this PC",
+    "pyttsx3": "re-run install.bat",
+}
+
+VOICE_CHAIN = []          # [(name, label, function)] built at startup
+ACTIVE_VOICE = None       # index into VOICE_CHAIN, None = nothing works
+VOICE_LABEL = "checking..."
+
+
+def build_voice_chain():
+    global VOICE_CHAIN
+    VOICE_CHAIN = []
+    if KEY_ELEVENLABS:
+        VOICE_CHAIN.append(("elevenlabs", "ElevenLabs voices", tts_elevenlabs))
+    if KEY_OPENAI:
+        VOICE_CHAIN.append(("openai", "OpenAI voices", tts_openai))
+    if os.name == "nt":
+        VOICE_CHAIN.append(("windows", "Windows voice", tts_windows))
+    VOICE_CHAIN.append(("pyttsx3", "offline voice (pyttsx3)", tts_pyttsx3))
+    if not (KEY_ELEVENLABS or KEY_OPENAI):
+        print("-- no ELEVENLABS_API_KEY / KEY_OPENAI in .env - using the free "
+              "voice (add a key for the fancy AI voices)")
+
+
+def preflight_voices():
+    """Try the engines with a tiny text so problems show at STARTUP,
+    not on the first chat message."""
+    global ACTIVE_VOICE, VOICE_LABEL
+    for i, (name, label, fn) in enumerate(VOICE_CHAIN):
+        try:
+            fn("ready")
+            ACTIVE_VOICE = i
+            VOICE_LABEL = label
+            print(f"-- voice check ok: {label}")
+            refresh_status()
+            return
+        except Exception as e:
+            warn_once(f"voice-{name}",
+                      f"{label} is not working ({type(e).__name__}: {e}) - "
+                      + VOICE_HINTS.get(name, ""))
+    ACTIVE_VOICE = None
+    VOICE_LABEL = "no working voice"
+    refresh_status()
+    warn_once("voice-none",
+              "The Duck cannot speak: no voice engine works on this PC.\n\n"
+              "Re-run install.bat in the CHAT_YAPPER folder, then start it "
+              "again. Details are in yapper.log.",
+              show_popup=True)
+
+
 def make_tts(text) -> bool:
     """Generate tts.wav. Returns False when no engine could produce audio."""
-    if KEY_OPENAI:
+    global ACTIVE_VOICE, VOICE_LABEL
+    if ACTIVE_VOICE is None:
+        return False
+    for i in range(ACTIVE_VOICE, len(VOICE_CHAIN)):
+        name, label, fn = VOICE_CHAIN[i]
         try:
-            tts_openai(text)
+            fn(text)
+            if i != ACTIVE_VOICE:      # an engine died mid-run: stay on this one
+                ACTIVE_VOICE = i
+                VOICE_LABEL = label
+                COMP["last_error"] = f"switched to {label}"
+                refresh_status()
             return True
         except Exception as e:
-            COMP["last_error"] = "OpenAI TTS failed - using the offline voice"
-            refresh_status()
-            warn_once("openai-tts",
-                      f"OpenAI TTS failed ({e}).\n\nCheck KEY_OPENAI in "
-                      "CHAT_YAPPER/.env - the Duck uses the offline voice for now.")
-    try:
-        tts_pyttsx3(text)
-        return True
-    except Exception as e:
-        COMP["last_error"] = f"no TTS voice works ({e})"
-        refresh_status()
-        warn_once("pyttsx3",
-                  f"The offline voice failed too ({e}).\n\n"
-                  "The Duck can't speak at all - re-run install.bat.",
-                  show_popup=True)
-        return False
+            warn_once(f"voice-{name}",
+                      f"{label} failed ({type(e).__name__}: {e}) - "
+                      + VOICE_HINTS.get(name, "") + " · trying the next voice")
+    ACTIVE_VOICE = None
+    VOICE_LABEL = "no working voice"
+    refresh_status()
+    warn_once("voice-none",
+              "The Duck cannot speak anymore: every voice engine failed.\n\n"
+              "Re-run install.bat in the CHAT_YAPPER folder. Details in yapper.log.",
+              show_popup=True)
+    return False
 
 
 def audio_duration():
@@ -432,10 +562,12 @@ async def listen_chat_connect(queue: asyncio.Queue):
 
 async def main():
     ensure_empty_wav()
+    build_voice_chain()
     refresh_status()
     asyncio.create_task(status_reporter())
     asyncio.create_task(source_recheck_loop())
     loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, preflight_voices)
     await loop.run_in_executor(None, obs_connect_blocking)
     await loop.run_in_executor(None, run_source_check, True)
     queue = asyncio.Queue(maxsize=MAX_QUEUE)

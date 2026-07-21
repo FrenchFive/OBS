@@ -29,6 +29,7 @@ import sys
 import threading
 import time
 import wave
+import zlib
 
 script_path = os.path.dirname(os.path.abspath(__file__))
 
@@ -104,8 +105,13 @@ OBS_HOST = os.getenv("OBS_HOST", "localhost")
 OBS_PORT = int(os.getenv("OBS_PORT", "4455"))
 OBS_PASSWORD = os.getenv("OBS_PASSWORD", "")
 
-MAX_QUEUE = 5          # messages waiting to be spoken; oldest dropped beyond this
+# Messages waiting to be spoken; beyond this the oldest are dropped so the
+# Duck never lags minutes behind a busy chat. Override with TTS_QUEUE_SIZE.
+MAX_QUEUE = max(1, int(os.getenv("TTS_QUEUE_SIZE", "10")))
 MAX_CHARS = 1000       # safety limit per message
+
+QUEUE = None           # the speak queue (set in main, watched by the reporter)
+DROPPED = 0            # messages skipped because the queue was full
 
 TTS_FILE = f"{script_path}/tts.wav"
 EMPTY_FILE = f"{script_path}/tts_empty.wav"
@@ -190,7 +196,14 @@ async def status_reporter():
     url = http_base(CHAT_CONNECT_WS) + "/api/tool-status"
     async with aiohttp.ClientSession() as session:
         while True:
-            payload = {"tool": "yapper", **STATUS}
+            detail = STATUS["detail"]
+            if QUEUE is not None and STATUS["state"] == "connected":
+                waiting = QUEUE.qsize()
+                if waiting:
+                    detail += f" · {waiting} message{'s' if waiting > 1 else ''} in queue"
+                if DROPPED:
+                    detail += f" · {DROPPED} skipped in spam"
+            payload = {"tool": "yapper", "state": STATUS["state"], "detail": detail}
             if VOICE_CATALOG:
                 payload["extra"] = {"voices": VOICE_CATALOG,
                                     "selected": ELEVENLABS_VOICES,
@@ -308,12 +321,25 @@ def ensure_empty_wav():
 #   3. Windows built-in voice  (PowerShell System.Speech - needs NO packages)
 #   4. pyttsx3                 (last resort, non-Windows offline voice)
 
-def tts_elevenlabs(text):
+def pick_voice(pool, voice_key):
+    """Same chatter -> same voice, stable across restarts.
+
+    Uses crc32 (NOT Python's hash(), which changes every run) of the user's
+    platform id, modulo the voice pool. No key -> random pick.
+    """
+    if not pool:
+        return None
+    if not voice_key:
+        return random.choice(pool)
+    return pool[zlib.crc32(voice_key.encode("utf-8")) % len(pool)]
+
+
+def tts_elevenlabs(text, voice_key=""):
     """ElevenLabs TTS through their plain REST API - no extra packages."""
     import urllib.error
     import urllib.request
 
-    voice = random.choice(ELEVENLABS_VOICES)
+    voice = pick_voice(ELEVENLABS_VOICES, voice_key)
     url = (f"https://api.elevenlabs.io/v1/text-to-speech/{voice}"
            f"?output_format=pcm_24000")
     body = json.dumps({"text": text, "model_id": ELEVENLABS_MODEL}).encode("utf-8")
@@ -336,7 +362,7 @@ def tts_elevenlabs(text):
         w.writeframes(pcm)
 
 
-def tts_openai(text):
+def tts_openai(text, voice_key=""):
     from openai import OpenAI
 
     voices = ["alloy", "ash", "ballad", "coral", "echo",
@@ -353,15 +379,15 @@ def tts_openai(text):
     client = OpenAI(api_key=KEY_OPENAI)
     with client.audio.speech.with_streaming_response.create(
         model="gpt-4o-mini-tts",
-        voice=random.choice(voices),
+        voice=pick_voice(voices, voice_key),      # stable per chatter
         input=text,
-        instructions=random.choice(instructions),
+        instructions=random.choice(instructions), # the mood still varies
         response_format="wav",
     ) as response:
         response.stream_to_file(TTS_FILE)
 
 
-def tts_windows(text):
+def tts_windows(text, voice_key=""):
     """Windows' built-in voice via PowerShell. No Python packages, no DLLs."""
     with open(TEXT_FILE, "w", encoding="utf-8-sig") as f:
         f.write(text)
@@ -381,7 +407,7 @@ def tts_windows(text):
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
-def tts_pyttsx3(text):
+def tts_pyttsx3(text, voice_key=""):
     import pyttsx3
     engine = pyttsx3.init()
     engine.save_to_file(text, TTS_FILE)
@@ -512,7 +538,7 @@ def preflight_voices():
               show_popup=True)
 
 
-def make_tts(text) -> bool:
+def make_tts(text, voice_key="") -> bool:
     """Generate tts.wav. Returns False when no engine could produce audio."""
     global ACTIVE_VOICE, VOICE_LABEL
     if ACTIVE_VOICE is None:
@@ -520,7 +546,7 @@ def make_tts(text) -> bool:
     for i in range(ACTIVE_VOICE, len(VOICE_CHAIN)):
         name, label, fn = VOICE_CHAIN[i]
         try:
-            fn(text)
+            fn(text, voice_key)
             if i != ACTIVE_VOICE:      # an engine died mid-run: stay on this one
                 ACTIVE_VOICE = i
                 VOICE_LABEL = label
@@ -552,9 +578,9 @@ def audio_duration():
 
 # ------------------------------------------------------------- the show
 
-def show_tts(message, author):
+def show_tts(message, author, voice_key=""):
     """Generate the voice, pop the duck in OBS, play it, hide the duck."""
-    if not make_tts(message):
+    if not make_tts(message, voice_key):
         return
     current_scene = obs_getCurrentScene()
     duration = audio_duration()
@@ -602,9 +628,11 @@ def speak_message(msg: dict):
     author = msg.get("author", "someone")
     platform = PLATFORM_LABEL.get(msg.get("platform"), "")
     label = f"{author} · {platform}" if platform else author
+    # stable per-chatter voice: platform user id survives display-name changes
+    voice_key = msg.get("author_id") or msg.get("author") or ""
     print(f'[{msg.get("platform", "?"):^7}] {author}: {text}')
     try:
-        show_tts(text, label)
+        show_tts(text, label, voice_key)
         if COMP["last_error"] and "OpenAI" not in COMP["last_error"]:
             COMP["last_error"] = ""
             refresh_status()
@@ -626,6 +654,7 @@ async def speaker_worker(queue: asyncio.Queue):
 
 
 async def listen_chat_connect(queue: asyncio.Queue):
+    global DROPPED
     ever_connected = False
     misses = 0
     while True:
@@ -652,6 +681,7 @@ async def listen_chat_connect(queue: asyncio.Queue):
                             continue
                         if queue.full():          # chat spam: drop the oldest
                             queue.get_nowait()
+                            DROPPED += 1
                         queue.put_nowait(event["data"])
             print("-- CHAT CONNECT closed the connection, retrying in 5s")
         except aiohttp.ClientError:
@@ -681,8 +711,9 @@ async def main():
     REPORT_NOW.set()
     await loop.run_in_executor(None, obs_connect_blocking)
     await loop.run_in_executor(None, run_source_check, True)
-    queue = asyncio.Queue(maxsize=MAX_QUEUE)
-    await asyncio.gather(listen_chat_connect(queue), speaker_worker(queue))
+    global QUEUE
+    QUEUE = asyncio.Queue(maxsize=MAX_QUEUE)
+    await asyncio.gather(listen_chat_connect(QUEUE), speaker_worker(QUEUE))
 
 
 if __name__ == "__main__":

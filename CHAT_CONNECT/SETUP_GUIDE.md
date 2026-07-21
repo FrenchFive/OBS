@@ -9,6 +9,7 @@ Duck TTS). Every single step is written out. If you already know a step, skip it
 > - A control page in your browser: `http://localhost:2428`
 > - Your **Twitch chat** and **YouTube live chat** merged into one feed
 > - A **clean chat overlay** you can drop into OBS and style in a visual editor
+> - A private **broadcaster view** to comfortably read both chats while live
 > - A local "chat firehose" any script can plug into (WebSocket / SSE / REST)
 > - Optionally: everything starts **automatically when you open OBS**
 
@@ -217,6 +218,23 @@ Chats highlighted.
 
 That's it — new messages slide in, and it keeps working across stream restarts
 (it reconnects on its own; when nothing is connected it simply shows nothing).
+
+### Your private broadcaster view (for you, not for the stream)
+
+The overlay is for viewers; **`http://localhost:2428/broadcaster`** is for
+YOU. Open it on a second screen (button on the dashboard) and read chat
+comfortably while live:
+
+- big readable text with **A− / A+** buttons (your size is remembered)
+- messages **never disappear** — long ones stay until you've read them
+- **scroll up to read something and the view stays put** — new messages
+  don't push it; a "↓ N new messages" button appears instead, one click
+  brings you back to live
+- a **🧹 Clear chat** button that wipes the chat *everywhere* at once
+  (this page, the dashboard and the OBS overlay)
+
+To open it on a phone/tablet or another PC, see the network note in
+[Troubleshooting](#15-troubleshooting) ("OBS runs on a different PC").
 
 ---
 

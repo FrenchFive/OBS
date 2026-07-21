@@ -215,6 +215,18 @@
       </div>
     </div>
 
+    <!-- BROADCASTER VIEW -->
+    <div class="card full">
+      <h2>📖 Broadcaster view</h2>
+      <div class="hint" style="margin-top:6px">Your private reading page: both chats in a
+        comfy size, <b>nothing ever disappears</b>, and while you scroll up to read
+        something, new messages never push the view around. Open it on a second
+        screen — plus a Clear button to wipe the chat everywhere.</div>
+      <div class="urlbox"><code id="broadcaster-url">…</code>
+        <button class="copy" data-copy="broadcaster-url">Copy</button>
+        <button class="copy" id="broadcaster-open">Open</button></div>
+    </div>
+
     <!-- DEVELOPERS -->
     <div class="card full">
       <h2>🔌 Use the messages in your own code</h2>
@@ -510,9 +522,11 @@
 
   // ------------------------------------------------------------------- urls
   $("overlay-url").textContent = `http://${location.host}/overlay`;
+  $("broadcaster-url").textContent = `http://${location.host}/broadcaster`;
   $("ws-url").textContent = `ws://${location.host}/ws`;
   $("sse-url").textContent = `http://${location.host}/events   (Server-Sent Events)`;
   $("overlay-open").onclick = () => window.open(`http://${location.host}/overlay`, "_blank");
+  $("broadcaster-open").onclick = () => window.open(`http://${location.host}/broadcaster`, "_blank");
   $("editor-open").onclick = () => window.open(`http://${location.host}/editor`, "_blank");
   document.querySelectorAll(".copy[data-copy]").forEach(btn => btn.onclick = () => {
     const text = $(btn.dataset.copy).textContent.split("   ")[0];

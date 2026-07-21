@@ -46,7 +46,7 @@ def color_for(name: str) -> str:
 class ChatHub:
     """Keeps recent history, per-platform status, and broadcasts events."""
 
-    def __init__(self, history_size: int = 300):
+    def __init__(self, history_size: int = 500):
         self.history = deque(maxlen=history_size)
         self._next_id = 1
         self._subscribers: set[asyncio.Queue] = set()

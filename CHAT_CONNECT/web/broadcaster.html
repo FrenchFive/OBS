@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CHAT CONNECT — broadcaster view</title>
+<style>
+  /* Private reading page for the broadcaster:
+     - comfortable text size (A- / A+ buttons, remembered)
+     - messages NEVER disappear
+     - scroll up to read: new messages never move your view
+     - Clear chat wipes everywhere (server, overlay, dashboard, here)   */
+  :root {
+    --bg: #000; --panel: #0d0d0d; --panel2: #161616; --line: #2a2a2a;
+    --text: #f2f2f2; --muted: #969696; --dim: #5c5c5c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    display: flex; flex-direction: column;
+  }
+
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    border-bottom: 1px solid var(--line); background: var(--panel);
+    position: sticky; top: 0; z-index: 5; flex: none; flex-wrap: wrap;
+  }
+  header h1 { font-size: 14px; letter-spacing: 2px; white-space: nowrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #3a3a3a; flex: none; }
+  .dot.on { background: #fff; box-shadow: 0 0 7px rgba(255,255,255,.8); }
+  .dot.mid { background: #bbb; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  .chip { display: flex; align-items: center; gap: 6px; font-size: 12px;
+          color: var(--muted); border: 1px solid var(--line); border-radius: 8px;
+          padding: 4px 10px; white-space: nowrap; }
+  .spacer { flex: 1; }
+  button {
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 13px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    color: var(--muted); background: var(--panel2); transition: .15s;
+    white-space: nowrap;
+  }
+  button:hover { color: #fff; border-color: #fff; }
+  .size-btn { padding: 7px 11px; font-variant-numeric: tabular-nums; }
+
+  #feed {
+    flex: 1; overflow-y: auto; padding: 14px 18px 24px;
+    font-size: var(--fs, 20px); line-height: 1.5;
+  }
+  .msg { padding: 0.28em 0; word-wrap: break-word; overflow-wrap: anywhere; }
+  .msg + .msg { border-top: 1px solid rgba(255,255,255,.045); }
+  .time { color: var(--dim); font-size: 0.7em; margin-right: 0.55em;
+          font-variant-numeric: tabular-nums; }
+  .picon { width: 1em; height: 1em; vertical-align: -0.12em; margin-right: 0.35em; }
+  .badge { font-size: 0.8em; margin-right: 0.15em; }
+  .author { font-weight: 700; margin-right: 0.15em; }
+  .colon { color: var(--dim); margin-right: 0.35em; }
+  .body { color: var(--text); }
+  .body img.emote { height: 1.35em; vertical-align: -0.35em; }
+  .msg.super { background: linear-gradient(90deg, rgba(255,179,0,.16), transparent 70%);
+               border-left: 3px solid #ffb300; padding-left: 0.55em; }
+  .amount { color: #ffd54f; font-weight: 800; margin-right: 0.35em; }
+
+  #pill {
+    position: fixed; bottom: 22px; right: 22px; z-index: 6;
+    background: #fff; color: #000; border: 0; border-radius: 999px;
+    padding: 11px 20px; font-size: 14px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 4px 18px rgba(0,0,0,.6); display: none;
+  }
+  #pill:hover { background: #d9d9d9; color: #000; }
+
+  #offline {
+    display: none; position: fixed; top: 64px; left: 50%; transform: translateX(-50%);
+    background: #fff; color: #000; font-weight: 700; font-size: 13px;
+    padding: 8px 18px; border-radius: 10px; z-index: 7;
+  }
+  .toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    background: #fff; color: #000; padding: 10px 18px; border-radius: 10px;
+    font-size: 13px; font-weight: 600; opacity: 0; transition: opacity .25s;
+    pointer-events: none; z-index: 10;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📖 BROADCASTER VIEW</h1>
+  <span class="chip"><span class="dot" id="tw-dot"></span>Twitch</span>
+  <span class="chip"><span class="dot" id="yt-dot"></span>YouTube</span>
+  <span class="spacer"></span>
+  <button class="size-btn" id="smaller" title="smaller text">A−</button>
+  <button class="size-btn" id="bigger" title="bigger text">A+</button>
+  <button id="clear" title="Wipe the chat everywhere: here, dashboard and OBS overlay">🧹 Clear chat</button>
+</header>
+
+<div id="feed"></div>
+<button id="pill">↓ 0 new messages</button>
+<div id="offline">server offline — reconnecting…</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const feed = $("feed"), pill = $("pill");
+  const MAX_KEPT = 1500;        // DOM safety cap; trimmed only while at bottom
+  const STICK_ZONE = 80;        // px from the bottom that counts as "following"
+  let lastId = 0, missed = 0, wsTimer = null;
+
+  // ------------------------------------------------------------ font size
+  let fontSize = parseInt(localStorage.getItem("bv-size") || "20", 10);
+  const applyFont = () => feed.style.setProperty("--fs", fontSize + "px");
+  applyFont();
+  $("bigger").onclick = () => { fontSize = Math.min(40, fontSize + 2); save(); };
+  $("smaller").onclick = () => { fontSize = Math.max(12, fontSize - 2); save(); };
+  function save() { localStorage.setItem("bv-size", fontSize); applyFont(); }
+
+  // ------------------------------------------------------------- helpers
+  const esc = s => String(s).replace(/[&<>"']/g,
+      c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const BADGES = { broadcaster: "👑", moderator: "🛡️", vip: "💎",
+                   subscriber: "⭐", member: "⭐", verified: "✔️" };
+  const PICON = {
+    twitch: '<svg class="picon" viewBox="0 0 24 24" fill="#9146FF"><path d="M4.3 1 2 6.4v15.2h5.2V24h3l2.4-2.4h3.7L22 15.9V1H4.3zm15.6 13.9-3 3h-4.7l-2.4 2.4v-2.4H5.9V3.1h14v11.8zM17 6.9v5.9h-2V6.9h2zm-5.5 0v5.9h-2V6.9h2z"/></svg>',
+    youtube: '<svg class="picon" viewBox="0 0 24 24" fill="#FF0033"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8zM9.5 15.5v-7l6.3 3.5-6.3 3.5z"/></svg>',
+    test: '🧪',
+  };
+
+  function toast(text) {
+    const t = $("toast");
+    t.textContent = text;
+    t.classList.add("show");
+    clearTimeout(t._h);
+    t._h = setTimeout(() => t.classList.remove("show"), 2200);
+  }
+
+  function renderText(m) {
+    let html = esc(m.message);
+    for (const e of (m.emotes || [])) {
+      if (!e.url) continue;
+      const pattern = esc(e.text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      html = html.replace(new RegExp(pattern, "g"),
+        `<img class="emote" src="${esc(e.url)}" alt="${esc(e.text)}">`);
+    }
+    return html;
+  }
+
+  // -------------------------------------------------- scroll-safe feeding
+  const atBottom = () =>
+    feed.scrollHeight - feed.scrollTop - feed.clientHeight < STICK_ZONE;
+  const toBottom = () => { feed.scrollTop = feed.scrollHeight; };
+
+  function addMessage(m, live = true) {
+    if (m.id <= lastId) return;
+    lastId = m.id;
+    const stick = atBottom();
+    const el = document.createElement("div");
+    el.className = "msg" + (m.amount ? " super" : "");
+    const time = new Date(m.timestamp * 1000).toTimeString().slice(0, 8);
+    const badges = (m.badges || []).map(b => BADGES[b] ? `<span class="badge">${BADGES[b]}</span>` : "").join("");
+    el.innerHTML =
+      `<span class="time">${time}</span>` + (PICON[m.platform] || "") + badges +
+      `<span class="author" style="color:${esc(m.color || "#fff")}">${esc(m.author)}</span>` +
+      (m.amount ? `<span class="amount">${esc(m.amount)}</span>` : "") +
+      `<span class="colon">:</span><span class="body">${renderText(m)}</span>`;
+    feed.appendChild(el);
+
+    if (stick) {
+      // following the chat: trim the top and stay glued to the newest
+      while (feed.children.length > MAX_KEPT) feed.removeChild(feed.firstChild);
+      toBottom();
+    } else if (live) {
+      // reading older messages: do NOT touch the scroll position
+      missed++;
+      pill.textContent = `↓ ${missed} new message${missed > 1 ? "s" : ""}`;
+      pill.style.display = "block";
+    }
+  }
+
+  feed.addEventListener("scroll", () => {
+    if (atBottom()) {
+      missed = 0;
+      pill.style.display = "none";
+      while (feed.children.length > MAX_KEPT) feed.removeChild(feed.firstChild);
+    }
+  });
+  pill.onclick = () => { toBottom(); missed = 0; pill.style.display = "none"; };
+
+  function setPlatform(s) {
+    const dot = $(s.platform === "twitch" ? "tw-dot" : "yt-dot");
+    if (!dot) return;
+    dot.className = "dot " + (s.state === "connected" ? "on"
+                    : (s.state === "connecting" || s.state === "waiting") ? "mid" : "");
+  }
+
+  // ------------------------------------------------------------ websocket
+  function connect() {
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onopen = () => { $("offline").style.display = "none"; };
+    ws.onmessage = ev => {
+      const { type, data } = JSON.parse(ev.data);
+      if (type === "chat") addMessage(data);
+      else if (type === "status") setPlatform(data);
+      else if (type === "clear") {
+        feed.innerHTML = ""; missed = 0; pill.style.display = "none";
+      } else if (type === "hello") {
+        Object.values(data.status || {}).forEach(setPlatform);
+        (data.history || []).forEach(m => addMessage(m, false));
+        toBottom();
+      }
+    };
+    ws.onclose = () => {
+      $("offline").style.display = "block";
+      clearTimeout(wsTimer);
+      wsTimer = setTimeout(connect, 2000);
+    };
+    ws.onerror = () => ws.close();
+  }
+  connect();
+
+  $("clear").onclick = () =>
+    fetch("/api/clear", { method: "POST" })
+      .then(r => { if (!r.ok) throw 0; toast("Chat cleared — everywhere"); })
+      .catch(() => toast("⚠ could not clear (server offline?)"));
+})();
+</script>
+</body>
+</html>

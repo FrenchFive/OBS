@@ -38,6 +38,10 @@ messages.
   auto-reconnect everywhere, config persisted in `config.json`.
 - **OBS auto-launch**: add `obs_autolaunch.lua` in OBS (Tools → Scripts) and
   opening OBS starts CHAT CONNECT + the Duck; closing OBS stops them.
+- **Broadcaster view** at `/broadcaster`: a private reading page — big
+  adjustable text, messages never expire, scroll-safe (reading an old
+  message? new ones never move your view — a "↓ N new" button appears),
+  and a Clear button that resets the chat everywhere.
 
 ## Quick start
 
@@ -61,6 +65,7 @@ CLI options: `main.py [--port 2428] [--host 127.0.0.1] [--open] [--log-file serv
 | `web/index.html` | dashboard |
 | `web/overlay.html` | OBS overlay |
 | `web/editor.html` | visual overlay style editor |
+| `web/broadcaster.html` | private reading view for the broadcaster |
 | `obs_autolaunch.lua` | OBS script: start/stop everything with OBS |
 | `autolaunch.bat` | silent starter used by the OBS script |
 | `example_consumer.py` | smallest possible WebSocket consumer |
@@ -132,7 +137,7 @@ Every frame is an envelope:
 | Method & path | Body / params | Effect |
 |---|---|---|
 | `GET /api/status` | – | current status + endpoint list |
-| `GET /api/messages` | `?since=<id>&limit=100` | history after id (max 300 kept) |
+| `GET /api/messages` | `?since=<id>&limit=100` | history after id (max 500 kept) |
 | `GET /api/overlay` | – | saved overlay style |
 | `POST /api/overlay` | `{size, fade, max, name_max, window_bg, window_bg_opacity, msg_bg, msg_bg_opacity, show_platform, show_time, delay, align, shadow_strength}` | save style + push to open overlays |
 | `POST /api/connect` | `{"platform":"twitch","channel":"name"}` | connect Twitch |
@@ -171,6 +176,6 @@ shadow` — table in
 - YouTube automatic mode uses YouTube's internal web endpoint; if YouTube
   changes it, switch to the official API key mode (guide §12) until this repo
   is updated.
-- History buffer is the last 300 messages (in RAM); `since`-polling beyond
+- History buffer is the last 500 messages (in RAM); `since`-polling beyond
   that returns only what's buffered.
 - Port 2428 = "CHAT" typed on a phone keypad. ☎️

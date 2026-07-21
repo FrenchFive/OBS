@@ -202,6 +202,9 @@ def make_app(hub: ChatHub, sources: Sources, stop_event: asyncio.Event) -> web.A
     async def editor(_):
         return await page("editor.html")
 
+    async def broadcaster(_):
+        return await page("broadcaster.html")
+
     # ------------------------------------------------------------- streaming
 
     async def websocket(request):
@@ -267,13 +270,14 @@ def make_app(hub: ChatHub, sources: Sources, stop_event: asyncio.Event) -> web.A
             "endpoints": {
                 "websocket": "/ws", "sse": "/events",
                 "messages": "/api/messages?since=0", "overlay": "/overlay",
+                "broadcaster": "/broadcaster",
             },
         }))
 
     async def api_messages(request):
         try:
             since = int(request.query.get("since", 0))
-            limit = min(int(request.query.get("limit", 100)), 300)
+            limit = min(int(request.query.get("limit", 100)), 500)
         except ValueError:
             raise web.HTTPBadRequest(text="since/limit must be integers")
         msgs = hub.messages_since(since, limit)
@@ -372,6 +376,7 @@ def make_app(hub: ChatHub, sources: Sources, stop_event: asyncio.Event) -> web.A
     app.router.add_get("/", index)
     app.router.add_get("/overlay", overlay)
     app.router.add_get("/editor", editor)
+    app.router.add_get("/broadcaster", broadcaster)
     app.router.add_get("/ws", websocket)
     app.router.add_get("/events", sse)
     app.router.add_get("/api/status", api_status)

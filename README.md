@@ -10,7 +10,33 @@ Here is some code i created w/ chat for streaming.
 - [x] COUNTER
 - [x] ORION
 - [x] CHAT CONTROL KEYBOARD 
-- [ ] MESSAGE VISUALISATION
+- [x] MESSAGE VISUALISATION → **CHAT CONNECT**
+- [x] CHAT YAPPER (Duck TTS) → reads Twitch **+ YouTube** via CHAT CONNECT
+
+---
+## CHAT CONNECT 💬
+
+**The chat hub.** Runs in the background and merges **Twitch chat + YouTube
+live chat** into one local stream on `http://localhost:2428`:
+
+- 🖥️ **Web dashboard** to connect/disconnect channels and watch the merged feed
+- 🎥 **Clean OBS overlay** (browser source: `http://localhost:2428/overlay`)
+- 🔌 **Open local API** (WebSocket / SSE / REST) so any script can read the
+  messages — the Duck, bots, games, whatever
+- 🔑 **No credentials needed** — anonymous Twitch reading, no-API-key YouTube
+  mode (official API key supported as an option)
+
+➡️ Beginner walkthrough: [`CHAT_CONNECT/SETUP_GUIDE.md`](CHAT_CONNECT/SETUP_GUIDE.md)
+· Tech/API docs: [`CHAT_CONNECT/README.md`](CHAT_CONNECT/README.md)
+
+---
+## CHAT YAPPER 🦆
+
+A duck pops up in OBS and **reads chat out loud** (random OpenAI voices, or a
+free offline voice). Plugged into CHAT CONNECT, so it yaps **both Twitch and
+YouTube** messages and announces who wrote them and where.
+
+➡️ Setup: [`CHAT_YAPPER/README.md`](CHAT_YAPPER/README.md)
 
 ---
 ## COUNTER 

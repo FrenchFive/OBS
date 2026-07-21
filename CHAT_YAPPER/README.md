@@ -1,0 +1,69 @@
+# 🦆 CHAT YAPPER — the Duck that reads chat
+
+A duck pops up in OBS and **reads chat messages out loud** with random fun
+voices. Since the CHAT CONNECT rework it reads **Twitch AND YouTube** — it
+takes its messages from the merged stream served by
+[`../CHAT_CONNECT`](../CHAT_CONNECT), so it needs **no Twitch/YouTube
+credentials at all**.
+
+```
+Twitch + YouTube ──► CHAT CONNECT (ws://127.0.0.1:2428/ws) ──► CHAT YAPPER ──► OBS (duck + voice)
+```
+
+## What you need
+
+- **CHAT CONNECT** installed and running (see
+  [`../CHAT_CONNECT/SETUP_GUIDE.md`](../CHAT_CONNECT/SETUP_GUIDE.md))
+- **OBS** with the WebSocket server enabled:
+  *Tools → WebSocket Server Settings → Enable WebSocket server* (port `4455`).
+  If you set a password there, put it in `.env` (see below).
+- *(Optional)* an **OpenAI API key** for the fancy random voices
+  (`gpt-4o-mini-tts`). Without a key the Duck falls back to the free offline
+  Windows voice (pyttsx3).
+
+## OBS scene setup (one time)
+
+The script drives three things in your current scene — create them with
+exactly these names:
+
+| Name | Type | Purpose |
+|------|------|---------|
+| `CHAT_YAPPING` | **Group** (right-click sources → Group) | everything that should pop in/out: put the duck image + author text inside |
+| `PYTHON_AUTHOR` | **Text (GDI+)** source, inside the group | shows who is talking (e.g. "french_five · Twitch") |
+| `PYTHON_TTS` | **Media Source**, can be outside the group | plays `tts.wav`; leave the file empty (the script sets it) |
+
+`duck_image.png` in this folder is a ready-to-use duck. The script shows the
+`CHAT_YAPPING` group while the voice plays, then hides it again.
+
+## Install & run
+
+```bat
+install.bat                      (once)
+copy .env.example .env           (optional - only to set keys/passwords)
+run.bat
+```
+
+Start order: **CHAT CONNECT → OBS → CHAT YAPPER**. (Wrong order is fine too —
+the Duck waits for OBS and retries CHAT CONNECT every 5 s until they're up.)
+
+## `.env` settings (all optional)
+
+```ini
+KEY_OPENAI=sk-…                          # fancy voices; empty = offline voice
+CHAT_CONNECT_URL=ws://127.0.0.1:2428/ws  # where CHAT CONNECT runs
+OBS_HOST=localhost
+OBS_PORT=4455
+OBS_PASSWORD=                            # if you set one in OBS
+```
+
+## Behaviour details
+
+- Reads `message_clean` (emotes/emoji codes stripped) — the Duck doesn't try
+  to pronounce `french210Love`.
+- Announces the author as `name · Twitch` / `name · YouTube` in the
+  `PYTHON_AUTHOR` text source.
+- If chat goes faster than the Duck can talk, it keeps the **5 newest**
+  messages and drops the oldest — it never lags minutes behind.
+- Old history is never read on startup/reconnect (only live messages).
+- The **Send test message** button on the CHAT CONNECT dashboard makes the
+  Duck talk without being live — great for testing volume and layout.

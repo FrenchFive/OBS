@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CHAT CONNECT overlay</title>
+<style>
+  /* Transparent overlay for OBS browser source.
+     URL options: ?size=18&max=12&fade=20&bg=0&align=bottom&shadow=1 */
+  html, body { margin: 0; padding: 0; background: rgba(0,0,0,0); overflow: hidden; }
+  #chat {
+    position: absolute; inset: 0; padding: 10px 14px;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    gap: 0.45em; font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    font-size: var(--size, 18px); line-height: 1.35;
+  }
+  #chat.top { justify-content: flex-start; }
+  .msg {
+    color: #fff; word-wrap: break-word; overflow-wrap: anywhere; max-width: 100%;
+    animation: slide-in .25s ease-out;
+    background: rgba(14, 15, 22, var(--bg-a, 0));
+    border-radius: 0.55em;
+    padding: var(--pad, 0);
+    width: fit-content;
+  }
+  .msg.shadow {
+    text-shadow: 0 1px 2px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.55);
+  }
+  .msg.gone { animation: fade-out .6s ease forwards; }
+  @keyframes slide-in { from { opacity: 0; transform: translateY(0.6em); } }
+  @keyframes fade-out { to { opacity: 0; } }
+  .picon { width: 1em; height: 1em; vertical-align: -0.12em; margin-right: 0.3em; }
+  .badge { font-size: 0.85em; margin-right: 0.15em; }
+  .author { font-weight: 700; margin-right: 0.15em; }
+  .colon { opacity: .75; margin-right: 0.3em; }
+  .text img.emote { height: 1.4em; vertical-align: -0.4em; }
+  .msg.super {
+    background: linear-gradient(90deg, rgba(255,179,0,.28), rgba(14,15,22,var(--bg-a, 0)) 65%);
+    border-left: 0.2em solid #ffb300; padding: 0.25em 0.5em;
+  }
+  .amount { color: #ffd54f; font-weight: 800; margin-right: 0.3em; }
+</style>
+</head>
+<body>
+<div id="chat"></div>
+<script>
+(() => {
+  const q = new URLSearchParams(location.search);
+  const SIZE  = parseInt(q.get("size") || "18", 10);
+  const MAX   = Math.max(1, parseInt(q.get("max") || "12", 10));
+  const FADE  = parseFloat(q.get("fade") || "0");        // seconds; 0 = keep forever
+  const BG    = Math.min(100, Math.max(0, parseInt(q.get("bg") || "0", 10)));
+  const TOP   = (q.get("align") === "top");
+  const SHADOW = q.get("shadow") !== "0";
+
+  const chat = document.getElementById("chat");
+  chat.style.setProperty("--size", SIZE + "px");
+  chat.style.setProperty("--bg-a", (BG / 100).toFixed(2));
+  if (BG > 0) chat.style.setProperty("--pad", "0.25em 0.5em");
+  if (TOP) chat.classList.add("top");
+
+  const esc = s => String(s).replace(/[&<>"']/g,
+      c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const BADGES = { broadcaster: "👑", moderator: "🛡️", vip: "💎",
+                   subscriber: "⭐", member: "⭐", verified: "✔️" };
+  const PICON = {
+    twitch: '<svg class="picon" viewBox="0 0 24 24" fill="#9146FF"><path d="M4.3 1 2 6.4v15.2h5.2V24h3l2.4-2.4h3.7L22 15.9V1H4.3zm15.6 13.9-3 3h-4.7l-2.4 2.4v-2.4H5.9V3.1h14v11.8zM17 6.9v5.9h-2V6.9h2zm-5.5 0v5.9h-2V6.9h2z"/></svg>',
+    youtube: '<svg class="picon" viewBox="0 0 24 24" fill="#FF0033"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8zM9.5 15.5v-7l6.3 3.5-6.3 3.5z"/></svg>',
+    test: '🧪',
+  };
+
+  let lastId = 0;
+
+  function renderText(m) {
+    let html = esc(m.message);
+    for (const e of (m.emotes || [])) {
+      if (!e.url) continue;
+      const pattern = esc(e.text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      html = html.replace(new RegExp(pattern, "g"),
+        `<img class="emote" src="${esc(e.url)}" alt="${esc(e.text)}">`);
+    }
+    return html;
+  }
+
+  function addMessage(m, animate = true) {
+    if (m.id <= lastId) return;   // skip duplicates after a reconnect
+    lastId = m.id;
+    const el = document.createElement("div");
+    el.className = "msg" + (SHADOW ? " shadow" : "") + (m.amount ? " super" : "");
+    if (!animate) el.style.animation = "none";
+    const badges = (m.badges || []).map(b => BADGES[b] ? `<span class="badge">${BADGES[b]}</span>` : "").join("");
+    el.innerHTML =
+      (PICON[m.platform] || "") + badges +
+      `<span class="author" style="color:${esc(m.color || "#fff")}">${esc(m.author)}</span>` +
+      (m.amount ? `<span class="amount">${esc(m.amount)}</span>` : "") +
+      `<span class="colon">:</span><span class="text">${renderText(m)}</span>`;
+    if (TOP) chat.prepend(el); else chat.appendChild(el);
+
+    const kids = [...chat.children];
+    if (kids.length > MAX) (TOP ? kids.slice(MAX) : kids.slice(0, kids.length - MAX))
+        .forEach(k => k.remove());
+    if (FADE > 0) setTimeout(() => {
+      el.classList.add("gone");
+      setTimeout(() => el.remove(), 650);
+    }, FADE * 1000);
+  }
+
+  function connect() {
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onmessage = ev => {
+      const { type, data } = JSON.parse(ev.data);
+      if (type === "chat") addMessage(data);
+      else if (type === "hello") data.history.slice(-MAX).forEach(m => addMessage(m, false));
+    };
+    // Overlay stays visually silent on errors (it's on stream) - just retry.
+    ws.onclose = () => setTimeout(connect, 2000);
+    ws.onerror = () => ws.close();
+  }
+  connect();
+})();
+</script>
+</body>
+</html>

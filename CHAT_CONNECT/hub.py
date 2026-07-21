@@ -53,6 +53,7 @@ class ChatHub:
         self._seen_native = deque(maxlen=400)   # (platform, native_id) dedupe guard
         self.log_path = None                    # set by main.py when logging enabled
         self.overlay_config = {}                # set by main.py, shared via hello
+        self.tools = {}                         # external tools (Duck, ...) reporting in
         self.status = {
             p: {"platform": p, "state": "disconnected", "detail": "", "target": ""}
             for p in PLATFORMS
@@ -120,6 +121,20 @@ class ChatHub:
         if native_id:
             self._seen_native.append((platform, native_id))
 
+    def set_tool_status(self, tool: str, state: str, detail: str = ""):
+        """Status heartbeat from an external tool (e.g. the Duck TTS).
+
+        Stored with a timestamp so the dashboard can tell 'running' from
+        'stopped reporting', and broadcast as a {"type": "tool"} event.
+        """
+        st = {"tool": tool, "state": state, "detail": detail,
+              "updated": round(time.time(), 3)}
+        previous = self.tools.get(tool)
+        self.tools[tool] = st
+        self._broadcast({"type": "tool", "data": dict(st)})
+        if not previous or (previous["state"], previous["detail"]) != (state, detail):
+            log.info("tool %s: %s %s", tool, state, ("- " + detail) if detail else "")
+
     def clear(self):
         """Wipe history and tell every page (overlay, dashboard) to clear its chat.
 
@@ -146,7 +161,7 @@ class ChatHub:
         return {
             "type": "hello",
             "data": {"history": list(self.history), "status": self.status,
-                     "overlay": self.overlay_config},
+                     "overlay": self.overlay_config, "tools": self.tools},
         }
 
     def publish_overlay_config(self, cfg: dict):

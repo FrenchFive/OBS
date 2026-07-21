@@ -91,6 +91,13 @@
   .feed-head .spacer { flex: 1; }
   .counter { font-size: 12px; color: var(--muted); }
 
+  .banner {
+    border: 1px solid var(--line); border-radius: 12px; padding: 11px 16px;
+    margin-bottom: 16px; font-size: 13px; color: var(--muted); background: var(--panel);
+  }
+  .banner b { color: #fff; }
+  .banner .item { white-space: nowrap; }
+
   footer { margin-top: 20px; display: flex; gap: 10px; align-items: center; }
   footer .right { margin-left: auto; display: flex; gap: 10px; }
   .toast {
@@ -112,6 +119,8 @@
     </div>
     <div id="server-state">connecting…</div>
   </header>
+
+  <div class="banner" id="health">checking what's running…</div>
 
   <div class="grid">
     <!-- TWITCH -->
@@ -147,6 +156,16 @@
       <div class="hint">With a <b>@handle</b> CHAT CONNECT waits for your stream and
         reconnects on every new live automatically. Details in
         <a href="https://github.com/frenchfive/OBS/blob/main/CHAT_CONNECT/SETUP_GUIDE.md" target="_blank">SETUP_GUIDE.md</a>.</div>
+    </div>
+
+    <!-- DUCK TTS -->
+    <div class="card full">
+      <h2>🦆 CHAT YAPPER — Duck TTS</h2>
+      <div class="status-line"><span class="dot" id="duck-dot"></span>
+        <span class="status-text" id="duck-status"><b>not running</b> — start it with OBS (auto-launcher) or CHAT_YAPPER\run.bat</span></div>
+      <div class="hint">The Duck reports here live. If something is wrong (missing OBS
+        sources, voice/key problems, OBS unreachable) the exact reason shows up above —
+        and the Duck also opens a Windows pop-up for real errors, even in background mode.</div>
     </div>
 
     <!-- OBS OVERLAY -->
@@ -258,7 +277,11 @@
     $("counter").textContent = count + " message" + (count === 1 ? "" : "s");
   }
 
+  const statuses = {}, tools = {};
+  const TOOL_STALE_S = 25;   // heartbeats come every 8s; silence = not running
+
   function setStatus(s) {
+    statuses[s.platform] = s;
     const dot = $(s.platform + "-dot"), text = $(s.platform + "-status");
     if (!dot) return;
     dot.className = "dot " + s.state;
@@ -271,7 +294,59 @@
       const input = $(s.platform === "twitch" ? "twitch-channel" : "youtube-target");
       if (input && !input.value) input.value = s.target;
     }
+    renderHealth();
   }
+
+  // ------------------------------------------------- duck & health banner
+  function duckInfo() {
+    const t = tools["yapper"];
+    if (!t) return { cls: "", label: "not running",
+                     detail: "start it with OBS (auto-launcher) or CHAT_YAPPER\\run.bat" };
+    const age = Date.now() / 1000 - t.updated;
+    if (age > TOOL_STALE_S)
+      return { cls: "error", label: "not running",
+               detail: `stopped reporting ${Math.round(age)}s ago (crashed or closed?) — check CHAT_YAPPER\\yapper.log` };
+    const cls = { connected: "connected", ready: "waiting", "waiting-obs": "connecting",
+                  starting: "connecting", error: "error" }[t.state] || "";
+    const label = { connected: "connected", ready: "waiting for chat hub",
+                    "waiting-obs": "waiting for OBS", starting: "starting…",
+                    error: "problem" }[t.state] || t.state;
+    return { cls, label, detail: t.detail || "" };
+  }
+
+  function renderDuck() {
+    const d = duckInfo();
+    $("duck-dot").className = "dot " + d.cls;
+    $("duck-status").innerHTML = `<b>${esc(d.label)}</b>` +
+      (d.detail ? ` — ${esc(d.detail)}` : "");
+  }
+
+  function renderHealth() {
+    const parts = [];
+    let problems = 0, running = 0;
+    for (const p of ["twitch", "youtube"]) {
+      const s = statuses[p];
+      const name = p === "twitch" ? "Twitch" : "YouTube";
+      if (!s || s.state === "disconnected") parts.push(`○ ${name} off`);
+      else if (s.state === "connected") { parts.push(`✔ ${name}`); running++; }
+      else if (s.state === "error") { parts.push(`✖ ${name}`); problems++; }
+      else parts.push(`… ${name}`);
+    }
+    const d = duckInfo(), hasDuck = !!tools["yapper"];
+    if (!hasDuck) parts.push("○ Duck off");
+    else if (d.cls === "connected") { parts.push("✔ Duck"); running++; }
+    else if (d.cls === "error") { parts.push("✖ Duck"); problems++; }
+    else parts.push("… Duck");
+    let verdict;
+    if (problems) verdict = `<b>⚠ ${problems} problem${problems > 1 ? "s" : ""}</b> — the cards below say exactly what's wrong`;
+    else if (running) verdict = "<b>✔ everything that's on is connected and working</b>";
+    else verdict = "nothing connected yet — connect a channel below";
+    $("health").innerHTML =
+      parts.map(x => `<span class="item">${x}</span>`).join(" &nbsp;·&nbsp; ") +
+      " &nbsp;—&nbsp; " + verdict;
+  }
+
+  setInterval(() => { renderDuck(); renderHealth(); }, 5000);
 
   // -------------------------------------------------------------- websocket
   function connectWS() {
@@ -284,9 +359,12 @@
       const { type, data } = JSON.parse(ev.data);
       if (type === "hello") {
         Object.values(data.status).forEach(setStatus);
+        Object.values(data.tools || {}).forEach(t => { tools[t.tool] = t; });
+        renderDuck(); renderHealth();
         data.history.forEach(addMessage);
       } else if (type === "chat") addMessage(data);
       else if (type === "status") setStatus(data);
+      else if (type === "tool") { tools[data.tool] = data; renderDuck(); renderHealth(); }
       else if (type === "clear") {
         feed.innerHTML = "";
         count = 0;

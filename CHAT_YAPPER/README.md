@@ -68,6 +68,23 @@ OBS_PORT=4455
 OBS_PASSWORD=                            # if you set one in OBS
 ```
 
+## Knowing that it works (and why it doesn't)
+
+The Duck never fails silently:
+
+- It reports its **live status to the CHAT CONNECT dashboard** — the
+  🦆 CHAT YAPPER card shows `connected`, `waiting for OBS`, or the exact
+  problem ("OBS is missing a source named 'PYTHON_TTS'", "OpenAI TTS
+  failed", …). The banner at the top of the dashboard sums up Twitch +
+  YouTube + Duck in one line.
+- On startup it **checks everything**: Python packages, the OBS websocket,
+  the three OBS sources (by exact name), the silent wav (recreated if
+  missing) and which voice it can use.
+- Real problems open a **Windows pop-up**, even when running hidden in the
+  background. Everything is also logged (`yapper.log` in background mode).
+- If OBS sources are missing it keeps running and **rechecks every 30 s**,
+  so you can fix the scene without restarting anything.
+
 ## Behaviour details
 
 - Reads `message_clean` (emotes/emoji codes stripped) — the Duck doesn't try

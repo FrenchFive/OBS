@@ -346,6 +346,14 @@ Full details live in `CHAT_YAPPER/README.md`, short version:
 The Duck now quacks Twitch AND YouTube messages, and says who wrote them and
 from which platform.
 
+**Is it working?** Look at the dashboard: the top banner sums up everything
+(`✔ Twitch · ✔ YouTube · ✔ Duck — everything is working`) and the **CHAT
+YAPPER card** shows the Duck's live status. On startup the Duck checks its
+whole setup — Python packages, OBS connection, the three OBS sources by
+name, the voice — and if something is wrong it says exactly what, both on
+that card and in a **Windows pop-up** (even when running hidden in the
+background).
+
 > Tip: the voice needs a moment to generate and speak, so it runs a little
 > behind the on-screen chat. Set **Chat delay** in the
 > [overlay editor](#9-make-it-look-how-you-want-overlay-editor) (2–5 s feels
@@ -510,6 +518,21 @@ it to your network: `.venv\Scripts\python main.py --host 0.0.0.0`, allow it in
 the Windows Firewall popup, and use `http://THE-PC-IP:2428/...` from the other
 device. Only do this on a network you trust — anyone on it can then see the
 dashboard.
+
+**The Duck doesn't talk and I don't know why**
+→ Open the dashboard (`http://localhost:2428`) and read the **CHAT YAPPER
+card** — the Duck reports its exact problem there:
+- *"not running"* → it isn't started (or crashed — check
+  `CHAT_YAPPER\yapper.log`). Start it with `CHAT_YAPPER\run.bat` to see the
+  output live in a window.
+- *"waiting for OBS"* → enable OBS's websocket: **Tools → WebSocket Server
+  Settings → Enable**, port `4455` (password goes in `CHAT_YAPPER\.env`).
+- *"OBS is missing a source named …"* → create/rename the sources in OBS:
+  `PYTHON_TTS` (media source), `PYTHON_AUTHOR` (text), group `CHAT_YAPPING`
+  in your scene — names must match EXACTLY (see `CHAT_YAPPER/README.md`).
+- *"OpenAI TTS failed"* → check `KEY_OPENAI` in `CHAT_YAPPER\.env`; the Duck
+  keeps talking with the offline voice meanwhile.
+Real errors also open a **Windows pop-up**, even in background mode.
 
 **The Duck says "CHAT CONNECT is not running"**
 → Start order: CHAT CONNECT first. The Duck retries every 5 s, so just start

@@ -93,6 +93,9 @@
       S.window_bg ? (S.window_bg_opacity / 100).toFixed(2) : "0");
     chat.classList.toggle("top", S.align === "top");
     trim();
+    // Re-arm the fade timer of every message already on screen so a new
+    // duration applies retroactively (e.g. forever -> 5s clears old messages).
+    [...chat.children].forEach(armFade);
   }
   applySettings(null);
 
@@ -127,6 +130,24 @@
         .forEach(k => k.remove());
   }
 
+  function fadeOut(el) {
+    el.classList.add("gone");
+    setTimeout(() => el.remove(), 650);
+  }
+
+  // (Re)start a message's countdown against the CURRENT duration setting,
+  // counted from when it appeared - so changing the setting affects messages
+  // already on screen too.
+  function armFade(el) {
+    clearTimeout(el._fadeTimer);
+    el._fadeTimer = null;
+    if (el.classList.contains("gone")) return;      // already on its way out
+    if (S.fade > 0) {
+      const remaining = S.fade * 1000 - (Date.now() - el._born);
+      el._fadeTimer = setTimeout(() => fadeOut(el), Math.max(0, remaining));
+    }
+  }
+
   function render(m, animate = true) {
     const el = document.createElement("div");
     el.className = "msg" + (S.shadow ? " shadow" : "") + (m.amount ? " super" : "");
@@ -144,20 +165,29 @@
       (m.amount ? `<span class="amount">${esc(m.amount)}</span>` : "") +
       `<span class="colon">:</span><span class="text">${renderText(m)}</span>`;
     if (S.align === "top") chat.prepend(el); else chat.appendChild(el);
+    el._born = Date.now();
     trim();
-    if (S.fade > 0) setTimeout(() => {
-      el.classList.add("gone");
-      setTimeout(() => el.remove(), 650);
-    }, S.fade * 1000);
+    armFade(el);
   }
+
+  const pendingDelays = new Set();
 
   function addMessage(m, animate = true, fresh = true) {
     if (m.id <= lastId) return;   // skip duplicates after a reconnect
     lastId = m.id;
     // Optional delay: hold fresh messages back so the overlay lines up with
     // the Duck TTS voice. History (fresh=false) is already old -> show now.
-    if (fresh && S.delay > 0) setTimeout(() => render(m, animate), S.delay * 1000);
-    else render(m, animate);
+    if (fresh && S.delay > 0) {
+      const t = setTimeout(() => { pendingDelays.delete(t); render(m, animate); },
+                           S.delay * 1000);
+      pendingDelays.add(t);
+    } else render(m, animate);
+  }
+
+  function clearChat() {
+    pendingDelays.forEach(clearTimeout);
+    pendingDelays.clear();
+    chat.innerHTML = "";
   }
 
   // ------------------------------------------------------------ live mode
@@ -167,6 +197,7 @@
       const { type, data } = JSON.parse(ev.data);
       if (type === "chat") addMessage(data);
       else if (type === "overlay") applySettings(data);
+      else if (type === "clear") clearChat();
       else if (type === "hello") {
         applySettings(data.overlay || {});
         (data.history || []).slice(-S.max).forEach(m => addMessage(m, false, false));

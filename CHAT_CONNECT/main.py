@@ -322,6 +322,10 @@ def make_app(hub: ChatHub, sources: Sources, stop_event: asyncio.Event) -> web.A
         log.info("overlay style saved: %s", cfg)
         return web.json_response({"ok": True, "overlay": cfg})
 
+    async def api_clear(_):
+        hub.clear()
+        return web.json_response({"ok": True})
+
     async def api_shutdown(_):
         log.info("shutdown requested via API")
         asyncio.get_running_loop().call_later(0.2, stop_event.set)
@@ -339,6 +343,7 @@ def make_app(hub: ChatHub, sources: Sources, stop_event: asyncio.Event) -> web.A
     app.router.add_post("/api/connect", api_connect)
     app.router.add_post("/api/disconnect", api_disconnect)
     app.router.add_post("/api/test", api_test_message)
+    app.router.add_post("/api/clear", api_clear)
     app.router.add_post("/api/shutdown", api_shutdown)
     return app
 

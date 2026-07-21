@@ -180,6 +180,7 @@
         <h2>💬 Live feed</h2><span class="spacer"></span>
         <span class="counter" id="counter">0 messages</span>
         <button id="test-btn">Send test message</button>
+        <button id="clear-btn" title="Wipe the chat here AND in the OBS overlay">🧹 Clear chat</button>
       </div>
       <div id="feed"></div>
     </div>
@@ -286,6 +287,11 @@
         data.history.forEach(addMessage);
       } else if (type === "chat") addMessage(data);
       else if (type === "status") setStatus(data);
+      else if (type === "clear") {
+        feed.innerHTML = "";
+        count = 0;
+        $("counter").textContent = "0 messages";
+      }
     };
     ws.onclose = () => {
       $("server-state").textContent = "server offline — retrying…";
@@ -312,6 +318,9 @@
       .then(() => toast("YouTube disconnected")).catch(e => toast("⚠ " + e.message));
   $("test-btn").onclick = () =>
     api("/api/test").then(() => {}).catch(e => toast("⚠ " + e.message));
+  $("clear-btn").onclick = () =>
+    api("/api/clear").then(() => toast("Chat cleared — here and in the overlay"))
+      .catch(e => toast("⚠ " + e.message));
   $("shutdown-btn").onclick = () => {
     if (!confirm("Stop the CHAT CONNECT server?\nOverlay and connected tools will stop receiving messages.")) return;
     api("/api/shutdown").then(() => toast("Server stopping…")).catch(() => {});

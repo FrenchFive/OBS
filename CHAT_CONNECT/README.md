@@ -85,7 +85,7 @@ All endpoints live on `http://127.0.0.1:2428`.
 Every frame is an envelope:
 
 ```json
-{ "type": "hello" | "chat" | "status" | "overlay", "data": { … } }
+{ "type": "hello" | "chat" | "status" | "overlay" | "clear", "data": { … } }
 ```
 
 - **`hello`** — sent once on connect: `data.history` (recent messages,
@@ -97,6 +97,8 @@ Every frame is an envelope:
   `disconnected | connecting | waiting | connected | error`.
 - **`overlay`** — the overlay style was saved in the editor; `data` is the
   full new settings object (overlays restyle themselves live on this).
+- **`clear`** — the chat was reset (dashboard button / `POST /api/clear`);
+  pages wipe their displayed messages. `data` is empty.
 
 ### Chat message schema
 
@@ -130,6 +132,7 @@ Every frame is an envelope:
 | `POST /api/connect` | `{"platform":"youtube","target":"@handle or URL","api_key":""}` | connect YouTube (key optional) |
 | `POST /api/disconnect` | `{"platform":"twitch"\|"youtube"}` | disconnect + disable autoconnect |
 | `POST /api/test` | `{"platform","author","message"}` (all optional) | inject a fake message |
+| `POST /api/clear` | – | reset the chat: wipe history + clear every open page |
 | `POST /api/shutdown` | – | stop the server |
 
 ### Consuming from Python

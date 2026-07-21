@@ -191,6 +191,10 @@ dashboard. A fake message appears in the feed, in the OBS overlay, and in
 anything else connected (the Duck will read it out loud!). Perfect for checking
 your OBS layout without going live.
 
+Next to it, **🧹 Clear chat** resets the chat everywhere at once — the
+dashboard feed AND the OBS overlay empty instantly. Handy after testing, or
+whenever you want a clean overlay mid-stream.
+
 ---
 
 ## 8. Show the chat in OBS (overlay)

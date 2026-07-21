@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CHAT CONNECT overlay</title>
+<style>
+  /* Transparent overlay for OBS browser source.
+     Style it visually at http://localhost:2428/editor (saved server-side).
+     URL params override saved settings per-source:
+       ?size=18&max=12&fade=20&name=12&bg=35&winbg=40&platform=1&time=1
+       &delay=0&align=bottom&shadow=1&preview=1                          */
+  html, body { margin: 0; padding: 0; background: rgba(0,0,0,0); overflow: hidden;
+               width: 100%; height: 100%; }
+  body { background: rgba(0, 0, 0, var(--win-a, 0)); }
+  #chat {
+    position: absolute; inset: 0; padding: 10px 14px;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    gap: 0.45em; font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    font-size: var(--size, 18px); line-height: 1.35;
+  }
+  #chat.top { justify-content: flex-start; }
+  .msg {
+    color: #fff; word-wrap: break-word; overflow-wrap: anywhere; max-width: 100%;
+    animation: slide-in .25s ease-out;
+    background: rgba(0, 0, 0, var(--bg-a, 0));
+    border-radius: 0.55em;
+    padding: var(--pad, 0);
+    width: fit-content;
+  }
+  .msg.shadow { text-shadow: 0 1px 2px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.55); }
+  .msg.gone { animation: fade-out .6s ease forwards; }
+  @keyframes slide-in { from { opacity: 0; transform: translateY(0.6em); } }
+  @keyframes fade-out { to { opacity: 0; } }
+  .time { opacity: .55; font-size: 0.8em; margin-right: 0.4em; }
+  .picon { width: 1em; height: 1em; vertical-align: -0.12em; margin-right: 0.3em; }
+  .badge { font-size: 0.85em; margin-right: 0.15em; }
+  .author { font-weight: 700; margin-right: 0.15em; }
+  .colon { opacity: .75; margin-right: 0.3em; }
+  .text img.emote { height: 1.4em; vertical-align: -0.4em; }
+  .msg.super {
+    background: linear-gradient(90deg, rgba(255,179,0,.28), rgba(0,0,0,var(--bg-a, 0)) 65%);
+    border-left: 0.2em solid #ffb300; padding: 0.25em 0.5em;
+  }
+  .amount { color: #ffd54f; font-weight: 800; margin-right: 0.3em; }
+</style>
+</head>
+<body>
+<div id="chat"></div>
+<script>
+(() => {
+  const chat = document.getElementById("chat");
+  const q = new URLSearchParams(location.search);
+  const PREVIEW = q.get("preview") === "1";
+
+  // ------------------------------------------------------------ settings
+  const DEFAULTS = {
+    size: 18, fade: 0, max: 12, name_max: 0,
+    window_bg: false, window_bg_opacity: 40,
+    msg_bg: false, msg_bg_opacity: 35,
+    show_platform: true, show_time: false,
+    delay: 0, align: "bottom", shadow: true,
+  };
+  let S = { ...DEFAULTS };
+
+  // URL params override the saved style for this specific browser source.
+  const urlOverrides = {};
+  const num = v => parseFloat(v);
+  const flag = v => v !== "0" && v !== "false";
+  const URL_MAP = {
+    size:    v => ({ size: num(v) }),
+    fade:    v => ({ fade: num(v) }),
+    max:     v => ({ max: num(v) }),
+    name:    v => ({ name_max: num(v) }),
+    bg:      v => ({ msg_bg: num(v) > 0, msg_bg_opacity: num(v) }),
+    winbg:   v => ({ window_bg: num(v) > 0, window_bg_opacity: num(v) }),
+    platform: v => ({ show_platform: flag(v) }),
+    time:    v => ({ show_time: flag(v) }),
+    delay:   v => ({ delay: num(v) }),
+    align:   v => ({ align: v === "top" ? "top" : "bottom" }),
+    shadow:  v => ({ shadow: flag(v) }),
+  };
+  for (const [param, fn] of Object.entries(URL_MAP)) {
+    if (q.has(param)) Object.assign(urlOverrides, fn(q.get(param)));
+  }
+
+  function applySettings(server) {
+    if (server) S = { ...DEFAULTS, ...server, ...urlOverrides };
+    else S = { ...S, ...urlOverrides };
+    chat.style.setProperty("--size", S.size + "px");
+    chat.style.setProperty("--bg-a", S.msg_bg ? (S.msg_bg_opacity / 100).toFixed(2) : "0");
+    chat.style.setProperty("--pad", S.msg_bg ? "0.25em 0.5em" : "0");
+    document.body.style.setProperty("--win-a",
+      S.window_bg ? (S.window_bg_opacity / 100).toFixed(2) : "0");
+    chat.classList.toggle("top", S.align === "top");
+    trim();
+  }
+  applySettings(null);
+
+  // ------------------------------------------------------------ rendering
+  const esc = s => String(s).replace(/[&<>"']/g,
+      c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const BADGES = { broadcaster: "👑", moderator: "🛡️", vip: "💎",
+                   subscriber: "⭐", member: "⭐", verified: "✔️" };
+  const PICON = {
+    twitch: '<svg class="picon" viewBox="0 0 24 24" fill="#9146FF"><path d="M4.3 1 2 6.4v15.2h5.2V24h3l2.4-2.4h3.7L22 15.9V1H4.3zm15.6 13.9-3 3h-4.7l-2.4 2.4v-2.4H5.9V3.1h14v11.8zM17 6.9v5.9h-2V6.9h2zm-5.5 0v5.9h-2V6.9h2z"/></svg>',
+    youtube: '<svg class="picon" viewBox="0 0 24 24" fill="#FF0033"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8zM9.5 15.5v-7l6.3 3.5-6.3 3.5z"/></svg>',
+    test: '🧪',
+  };
+
+  let lastId = 0;
+
+  function renderText(m) {
+    let html = esc(m.message);
+    for (const e of (m.emotes || [])) {
+      if (!e.url) continue;
+      const pattern = esc(e.text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      html = html.replace(new RegExp(pattern, "g"),
+        `<img class="emote" src="${esc(e.url)}" alt="${esc(e.text)}">`);
+    }
+    return html;
+  }
+
+  function trim() {
+    const kids = [...chat.children];
+    if (kids.length > S.max)
+      (S.align === "top" ? kids.slice(S.max) : kids.slice(0, kids.length - S.max))
+        .forEach(k => k.remove());
+  }
+
+  function render(m, animate = true) {
+    const el = document.createElement("div");
+    el.className = "msg" + (S.shadow ? " shadow" : "") + (m.amount ? " super" : "");
+    if (!animate) el.style.animation = "none";
+    let author = m.author || "";
+    if (S.name_max > 0 && author.length > S.name_max)
+      author = author.slice(0, S.name_max) + "…";
+    const time = S.show_time
+      ? `<span class="time">${new Date(m.timestamp * 1000).toTimeString().slice(0, 5)}</span>` : "";
+    const icon = S.show_platform ? (PICON[m.platform] || "") : "";
+    const badges = (m.badges || []).map(b => BADGES[b] ? `<span class="badge">${BADGES[b]}</span>` : "").join("");
+    el.innerHTML =
+      time + icon + badges +
+      `<span class="author" style="color:${esc(m.color || "#fff")}">${esc(author)}</span>` +
+      (m.amount ? `<span class="amount">${esc(m.amount)}</span>` : "") +
+      `<span class="colon">:</span><span class="text">${renderText(m)}</span>`;
+    if (S.align === "top") chat.prepend(el); else chat.appendChild(el);
+    trim();
+    if (S.fade > 0) setTimeout(() => {
+      el.classList.add("gone");
+      setTimeout(() => el.remove(), 650);
+    }, S.fade * 1000);
+  }
+
+  function addMessage(m, animate = true, fresh = true) {
+    if (m.id <= lastId) return;   // skip duplicates after a reconnect
+    lastId = m.id;
+    // Optional delay: hold fresh messages back so the overlay lines up with
+    // the Duck TTS voice. History (fresh=false) is already old -> show now.
+    if (fresh && S.delay > 0) setTimeout(() => render(m, animate), S.delay * 1000);
+    else render(m, animate);
+  }
+
+  // ------------------------------------------------------------ live mode
+  function connect() {
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onmessage = ev => {
+      const { type, data } = JSON.parse(ev.data);
+      if (type === "chat") addMessage(data);
+      else if (type === "overlay") applySettings(data);
+      else if (type === "hello") {
+        applySettings(data.overlay || {});
+        (data.history || []).slice(-S.max).forEach(m => addMessage(m, false, false));
+      }
+    };
+    // Overlay stays visually silent on errors (it's on stream) - just retry.
+    ws.onclose = () => setTimeout(connect, 2000);
+    ws.onerror = () => ws.close();
+  }
+
+  // --------------------------------------------------------- preview mode
+  // Used by /editor inside an iframe: no websocket, sample messages cycle
+  // and the editor pushes settings via postMessage for a live preview.
+  function startPreview() {
+    const KAPPA = "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/2.0";
+    const SAMPLES = [
+      { platform: "twitch", author: "PixelWarrior", color: "#9B7BFF",
+        badges: ["moderator"], message: "Kappa this overlay looks great Kappa",
+        emotes: [{ text: "Kappa", url: KAPPA }] },
+      { platform: "youtube", author: "StreamFanWithAVeryLongName", color: "#FF7BC6",
+        badges: ["member"], message: "hello from YouTube 😍🔥", emotes: [] },
+      { platform: "twitch", author: "french_five", color: "#7ED321",
+        badges: ["broadcaster"], message: "welcome everyone!", emotes: [] },
+      { platform: "youtube", author: "GenerousViewer", color: "#4FC3F7",
+        badges: [], message: "take my money", amount: "€5.00", emotes: [] },
+      { platform: "twitch", author: "Anonymous_Lurker", color: "#F5A623",
+        badges: ["subscriber"], message: "the duck reads BOTH chats now?!", emotes: [] },
+    ];
+    let i = 0, n = 1;
+    const push = () => {
+      const m = { ...SAMPLES[i % SAMPLES.length], id: n++, timestamp: Date.now() / 1000 };
+      i++;
+      render(m, true);           // preview ignores the delay on purpose
+    };
+    window.addEventListener("message", ev => {
+      if (ev.data && ev.data.type === "overlay-settings") {
+        S = { ...DEFAULTS, ...ev.data.settings };
+        applySettings(ev.data.settings);
+        chat.innerHTML = "";      // re-render a fresh burst with the new style
+        lastId = 0; n = 1;
+        for (let k = 0; k < Math.min(4, S.max); k++) push();
+      }
+    });
+    for (let k = 0; k < 4; k++) push();
+    setInterval(push, 2400);
+    parent.postMessage({ type: "overlay-preview-ready" }, "*");
+  }
+
+  if (PREVIEW) startPreview(); else connect();
+})();
+</script>
+</body>
+</html>

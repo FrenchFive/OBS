@@ -1,70 +1,142 @@
-import pyttsx3
-import time
-import os 
-from dotenv import load_dotenv
+"""CHAT YAPPER - the Duck that reads chat out loud in OBS.
 
-from openai import OpenAI
-import random
+The Duck now gets its messages from CHAT CONNECT (../CHAT_CONNECT), which
+merges Twitch AND YouTube live chat into one local stream. So:
 
-from pydub import AudioSegment
+    1. start CHAT_CONNECT  (run.bat there)  and connect your channels
+    2. start OBS           (websocket server enabled, port 4455)
+    3. start this          (run.bat here)   -> the duck reads BOTH chats
 
-import obsws_python as obs
-import json
+No Twitch/YouTube credentials are needed here anymore - CHAT CONNECT
+handles the platforms. Optional .env: KEY_OPENAI for nicer OpenAI voices
+(falls back to free offline pyttsx3 voices without it).
+"""
 
-from twitchAPI.twitch import Twitch
-from twitchAPI.oauth import UserAuthenticator
-from twitchAPI.type import AuthScope, ChatEvent
-from twitchAPI.chat import Chat, EventData, ChatMessage, ChatSub, ChatCommand
 import asyncio
-
+import json
+import os
+import random
+import socket
+import sys
+import time
 import wave
 
 script_path = os.path.dirname(os.path.abspath(__file__))
 
+# Under pythonw.exe (background mode) there is no console: print() would
+# crash, so route all output to yapper.log instead.
+if sys.stdout is None or sys.stderr is None:
+    _logfile = open(f"{script_path}/yapper.log", "a", buffering=1, encoding="utf-8")
+    sys.stdout = sys.stdout or _logfile
+    sys.stderr = sys.stderr or _logfile
+
+import aiohttp
+from dotenv import load_dotenv
+
+import obsws_python as obs
+
 load_dotenv()
 
-APP_ID = os.getenv('TWITCH_ID')
-APP_SECRET = os.getenv('TWITCH_SECRET')
-USER_SCOPE = [AuthScope.CHAT_READ, AuthScope.CHAT_EDIT]
-TARGET_CHANNEL = 'french_five'
+# ---------------------------------------------------------------- settings
+
+CHAT_CONNECT_WS = os.getenv("CHAT_CONNECT_URL", "ws://127.0.0.1:2428/ws")
 KEY_OPENAI = os.getenv("KEY_OPENAI")
 
-CLIENT = obs.ReqClient(host='localhost', port=4455, password='', timeout=3)
+OBS_HOST = os.getenv("OBS_HOST", "localhost")
+OBS_PORT = int(os.getenv("OBS_PORT", "4455"))
+OBS_PASSWORD = os.getenv("OBS_PASSWORD", "")
 
-TOKEN_FILE = script_path + '/token.json'
+MAX_QUEUE = 5          # messages waiting to be spoken; oldest dropped beyond this
+MAX_CHARS = 1000       # safety limit per message
 
-def tts(text):
+# Follow mode (set by autolaunch.bat / the OBS auto-launcher): once CHAT
+# CONNECT has been seen alive, exit when it goes away instead of retrying
+# forever - closing OBS then cleans up the Duck automatically.
+EXIT_WITH_SERVER = os.getenv("CHAT_YAPPER_EXIT_WITH_SERVER", "") == "1"
+
+# Single-instance lock: holding this port claims "the Duck is running".
+# A second copy (e.g. OBS autolaunch while it's already up) exits quietly.
+LOCK_PORT = int(os.getenv("CHAT_YAPPER_LOCK_PORT", "2430"))
+
+
+def acquire_single_instance_lock():
+    lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        lock.bind(("127.0.0.1", LOCK_PORT))
+        lock.listen(1)
+        return lock
+    except OSError:
+        print(f"-- CHAT YAPPER is already running (lock port {LOCK_PORT} busy) - bye")
+        sys.exit(0)
+
+TTS_FILE = f"{script_path}/tts.wav"
+EMPTY_FILE = f"{script_path}/tts_empty.wav"
+
+# OBS source names (create these in OBS, see README.md):
+SRC_MEDIA = "PYTHON_TTS"       # media source that plays tts.wav
+SRC_AUTHOR = "PYTHON_AUTHOR"   # text source showing who is talking
+SRC_GROUP = "CHAT_YAPPING"     # group/scene item with the duck + text
+
+# ------------------------------------------------------------------- OBS
+
+CLIENT = None
+
+
+def obs_connect_blocking():
+    """Keep trying until OBS is reachable (so start order doesn't matter)."""
+    global CLIENT
+    while CLIENT is None:
+        try:
+            CLIENT = obs.ReqClient(host=OBS_HOST, port=OBS_PORT,
+                                   password=OBS_PASSWORD, timeout=3)
+            print("-- OBS connected")
+        except Exception:
+            print(f"-- waiting for OBS websocket on {OBS_HOST}:{OBS_PORT} "
+                  "(OBS > Tools > WebSocket Server Settings) - retry in 5s")
+            time.sleep(5)
+
+
+def obs_activate(scene, item_name, enable):
+    scene_items = CLIENT.get_scene_item_list(scene).scene_items
+    for item in scene_items:
+        if item["sourceName"] == item_name:
+            CLIENT.set_scene_item_enabled(scene, item["sceneItemId"], enable)
+            break
+
+
+def obs_setInput(item, parm, value):
+    CLIENT.set_input_settings(name=item, settings={parm: value}, overlay=True)
+
+
+def obs_getCurrentScene():
+    return CLIENT.get_current_program_scene().scene_name
+
+
+# ------------------------------------------------------------------- TTS
+
+def tts_pyttsx3(text):
+    import pyttsx3
     engine = pyttsx3.init()
-    engine.save_to_file(text, f'{script_path}/tts.wav')
+    engine.save_to_file(text, TTS_FILE)
     engine.runAndWait()
     engine.stop()
 
-def openai_tts(text):
-    voices = [ 
-        "alloy",
-        "ash",
-        "ballad",
-        "coral",
-        "echo",
-        "fable",
-        "nova",
-        "onyx",
-        "sage",
-        "shimmer"
-    ]
 
+def tts_openai(text):
+    from openai import OpenAI
+
+    voices = ["alloy", "ash", "ballad", "coral", "echo",
+              "fable", "nova", "onyx", "sage", "shimmer"]
     instructions = [
         "Speak in a cheerful and positive tone.",
         "Speak as a pirate captain, with a commanding and adventurous tone.",
         "Speak as a wise old sage, with a calm and thoughtful tone.",
         "Speak as a friendly robot, with a jerky rhythm and a mechanical tone.",
         "Speak as a dramatic storyteller, with a deep and engaging tone.",
-        "Extremely excited as if you were about to explode."
+        "Extremely excited as if you were about to explode.",
     ]
 
     client = OpenAI(api_key=KEY_OPENAI)
-    speech_file_path = f'{script_path}/tts.wav'
-
     with client.audio.speech.with_streaming_response.create(
         model="gpt-4o-mini-tts",
         voice=random.choice(voices),
@@ -72,147 +144,122 @@ def openai_tts(text):
         instructions=random.choice(instructions),
         response_format="wav",
     ) as response:
-        response.stream_to_file(speech_file_path)
-    
+        response.stream_to_file(TTS_FILE)
+
+
+def make_tts(text):
+    if KEY_OPENAI:
+        try:
+            tts_openai(text)
+            return
+        except Exception as e:
+            print(f"!! OpenAI TTS failed ({e}), falling back to pyttsx3")
+    tts_pyttsx3(text)
 
 
 def audio_duration():
-    file_path = f'{script_path}/tts.wav'
     try:
-        audio = AudioSegment.from_file(file_path)
-        duration = len(audio) / 1000.0  # duration in seconds
-        return duration
+        with wave.open(TTS_FILE, "rb") as w:
+            return w.getnframes() / float(w.getframerate())
     except Exception as e:
-        print(f"⚠️ Could not read audio duration: {e}")
+        print(f"!! could not read audio duration: {e}")
         return 0
 
 
-def obs_activate(scene, item_name, enable):
-    cl = CLIENT
-
-    scene_items  = cl.get_scene_item_list(scene).scene_items
-
-    for item in scene_items:
-        if item["sourceName"] == item_name:
-            cl.set_scene_item_enabled(scene, item["sceneItemId"], enable)
-            break
-
-def obs_setInput(item, parm, file_path):
-    cl = CLIENT
-
-    # Set the input file for the TTS source
-    cl.set_input_settings(
-        name=item,
-        settings={parm: file_path},
-        overlay=True  # Keep other settings intact
-    )
-
-def obs_getCurrentScene():
-    cl = CLIENT
-    current_scene = cl.get_current_program_scene()
-
-    return current_scene.scene_name
-
+# ------------------------------------------------------------- the show
 
 def show_tts(message, author):
+    """Generate the voice, pop the duck in OBS, play it, hide the duck."""
     current_scene = obs_getCurrentScene()
-    openai_tts(message)
+    make_tts(message)
     duration = audio_duration()
-    print(f"Audio duration: {duration}")
 
-    obs_setInput("PYTHON_TTS", "local_file", f'{script_path}/tts.wav')
-    obs_activate(current_scene, "PYTHON_TTS", False)
-    obs_setInput("PYTHON_AUTHOR", "text", author)
-    
-    obs_activate(current_scene, "CHAT_YAPPING", True)
-    CLIENT.set_input_mute("PYTHON_TTS", False)
-    
+    obs_setInput(SRC_MEDIA, "local_file", TTS_FILE)
+    obs_activate(current_scene, SRC_MEDIA, False)
+    obs_setInput(SRC_AUTHOR, "text", author)
+
+    obs_activate(current_scene, SRC_GROUP, True)
+    CLIENT.set_input_mute(SRC_MEDIA, False)
+
     time.sleep(duration + 0.2)
 
-    obs_activate(current_scene, "CHAT_YAPPING", False)
-    CLIENT.set_input_mute("PYTHON_TTS", True)
+    obs_activate(current_scene, SRC_GROUP, False)
+    CLIENT.set_input_mute(SRC_MEDIA, True)
 
-    obs_setInput("PYTHON_TTS", "local_file", f'{script_path}/tts_empty.wav')
-
-def strip_emotes(text: str, emotes: dict) -> str:
-    if not emotes:
-        return text
-
-    # Flatten the emote positions into a list of (start, end) tuples
-    ranges = []
-    for positions in emotes.values():
-        for pos in positions:
-            start = int(pos['start_position'])
-            end = int(pos['end_position']) + 1  # +1 because string slicing is exclusive at the end
-            ranges.append((start, end))
-
-    # Sort ranges from last to first to avoid messing up indexes
-    ranges.sort(reverse=True)
-
-    # Remove the emotes from the text
-    for start, end in ranges:
-        text = text[:start] + text[end:]
-
-    return ' '.join(text.split())  # Clean up any extra whitespace
+    obs_setInput(SRC_MEDIA, "local_file", EMPTY_FILE)
 
 
-# TWITCH API
-
-# this will be called when the event READY is triggered, which will be on bot start
-async def on_ready(ready_event: EventData):
-    print('__ READY __')
-    await ready_event.chat.join_room(TARGET_CHANNEL)
+PLATFORM_LABEL = {"twitch": "Twitch", "youtube": "YouTube"}
 
 
-
-# this will be called whenever a message in a channel was send by either the bot OR another user
-async def on_message(msg: ChatMessage):
-    print(f'{msg.user.name} said: {msg.text}')
-    text = strip_emotes(msg.text, msg.emotes)[:1000].strip()  # Limit to 1000 characters and strip whitespace
-    if len(text) > 0:
-        show_tts(text, msg.user.name)
-    
-
-# this is where we set up the bot
-async def run():
-    twitch = await Twitch(APP_ID, APP_SECRET)
-
-    if TOKEN_FILE and os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, 'r') as f:
-            token_data = json.load(f)
-            token = token_data.get('token')
-            refresh_token = token_data.get('refresh_token')
-    else:
-        # set up twitch api instance and add user authentication with some scopes
-        auth = UserAuthenticator(twitch, USER_SCOPE)
-        token, refresh_token = await auth.authenticate()
-
-        # save the token to a file for later use
-        with open(TOKEN_FILE, 'w') as f:
-            json.dump({'token': token, 'refresh_token': refresh_token}, f)
-    
-    await twitch.set_user_authentication(token, USER_SCOPE, refresh_token)
-
-    # create chat instance
-    chat = await Chat(twitch)
-
-    # register the handlers for the events you want
-
-    # listen to when the bot is done starting up and ready to join channels
-    chat.register_event(ChatEvent.READY, on_ready)
-    # listen to chat messages
-    chat.register_event(ChatEvent.MESSAGE, on_message)
-
-    # we are done with our setup, lets start this bot up!
-    chat.start()
-
-    # lets run till we press enter in the console
+def speak_message(msg: dict):
+    # message_clean = text with emotes/emoji-codes stripped -> best for TTS
+    text = (msg.get("message_clean") or msg.get("message") or "")[:MAX_CHARS].strip()
+    if not text:
+        return
+    author = msg.get("author", "someone")
+    platform = PLATFORM_LABEL.get(msg.get("platform"), "")
+    label = f"{author} · {platform}" if platform else author
+    print(f'[{msg.get("platform", "?"):^7}] {author}: {text}')
     try:
-        input('press ENTER to stop\\n')
-    finally:
-        # now we can close the chat bot and the twitch api client
-        chat.stop()
+        show_tts(text, label)
+    except Exception as e:
+        print(f"!! OBS error while playing message: {e} - reconnecting to OBS")
+        global CLIENT
+        CLIENT = None
+        obs_connect_blocking()
 
 
-# lets run our setup
-asyncio.run(run())
+# ------------------------------------------- CHAT CONNECT stream consumer
+
+async def speaker_worker(queue: asyncio.Queue):
+    loop = asyncio.get_running_loop()
+    while True:
+        msg = await queue.get()
+        await loop.run_in_executor(None, speak_message, msg)
+
+
+async def listen_chat_connect(queue: asyncio.Queue):
+    ever_connected = False
+    misses = 0
+    while True:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.ws_connect(CHAT_CONNECT_WS, heartbeat=25) as ws:
+                    print(f"-- connected to CHAT CONNECT ({CHAT_CONNECT_WS})")
+                    print("-- the duck now reads Twitch + YouTube. Quack.")
+                    ever_connected = True
+                    misses = 0
+                    async for frame in ws:
+                        if frame.type != aiohttp.WSMsgType.TEXT:
+                            continue
+                        event = json.loads(frame.data)
+                        # "hello" carries old history - never read that aloud.
+                        if event.get("type") != "chat":
+                            continue
+                        if queue.full():          # chat spam: drop the oldest
+                            queue.get_nowait()
+                        queue.put_nowait(event["data"])
+            print("-- CHAT CONNECT closed the connection, retrying in 5s")
+        except aiohttp.ClientError:
+            print("-- CHAT CONNECT is not running - start CHAT_CONNECT/run.bat "
+                  "(retrying in 5s)")
+        misses += 1
+        if EXIT_WITH_SERVER and ever_connected and misses >= 3:
+            print("-- CHAT CONNECT stopped and follow mode is on - bye")
+            os._exit(0)   # hard exit: a TTS worker thread may be mid-sleep
+        await asyncio.sleep(5)
+
+
+async def main():
+    obs_connect_blocking()
+    queue = asyncio.Queue(maxsize=MAX_QUEUE)
+    await asyncio.gather(listen_chat_connect(queue), speaker_worker(queue))
+
+
+if __name__ == "__main__":
+    _instance_lock = acquire_single_instance_lock()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nCHAT YAPPER stopped.")

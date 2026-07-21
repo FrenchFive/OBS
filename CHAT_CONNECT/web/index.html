@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CHAT CONNECT</title>
+<style>
+  :root {
+    --bg: #000; --panel: #0d0d0d; --panel2: #161616; --line: #2a2a2a;
+    --text: #f2f2f2; --muted: #969696; --dim: #5c5c5c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); min-height: 100vh;
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; }
+
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+  .logo {
+    width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
+    background: #fff; color: #000; font-size: 24px;
+  }
+  header h1 { font-size: 22px; letter-spacing: 3px; }
+  header .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  #server-state { margin-left: auto; font-size: 13px; color: var(--muted); }
+  #server-state.offline { color: #fff; font-weight: 700; text-decoration: underline; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 18px;
+  }
+  .card h2 { font-size: 15px; display: flex; align-items: center; gap: 10px; }
+  .picon { width: 22px; height: 22px; flex: none; fill: #fff; }
+  .status-line { display: flex; align-items: center; gap: 8px; margin: 10px 0 14px; font-size: 13px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #3a3a3a; flex: none; }
+  .dot.connected { background: #fff; box-shadow: 0 0 8px rgba(255,255,255,.8); }
+  .dot.connecting, .dot.waiting { background: #bbb; animation: pulse 1.2s infinite; }
+  .dot.error { background: transparent; border: 2px solid #fff; width: 8px; height: 8px; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  .status-text { color: var(--muted); }
+  .status-text b { color: var(--text); font-weight: 600; }
+
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input[type=text], input[type=password] {
+    width: 100%; padding: 10px 12px; border-radius: 9px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--text); font-size: 14px; outline: none;
+  }
+  input:focus { border-color: #fff; }
+  .row { display: flex; gap: 10px; margin-top: 14px; }
+  button {
+    border: 1px solid var(--line); border-radius: 9px; padding: 10px 16px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    color: var(--muted); background: var(--panel2); transition: .15s;
+  }
+  button:hover { color: #fff; border-color: #fff; }
+  .btn-main { background: #fff; color: #000; border-color: #fff; }
+  .btn-main:hover { background: #d9d9d9; color: #000; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .hint b { color: var(--text); }
+  .hint a { color: #fff; }
+
+  .full { grid-column: 1 / -1; }
+  .urlbox {
+    display: flex; align-items: center; gap: 8px; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 9px; padding: 8px 8px 8px 12px; margin-top: 8px;
+  }
+  .urlbox code { font-size: 13px; color: #fff; flex: 1; overflow-x: auto; white-space: nowrap; }
+  .copy { padding: 6px 12px; font-size: 12px; flex: none; }
+
+  #feed {
+    height: 380px; overflow-y: auto; background: var(--panel2); margin-top: 12px;
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 6px; scroll-behavior: smooth;
+  }
+  .msg { font-size: 14px; line-height: 1.45; word-wrap: break-word; animation: in .2s ease-out; }
+  @keyframes in { from { opacity: 0; transform: translateY(4px); } }
+  .msg .time { color: var(--dim); font-size: 11px; margin-right: 6px; }
+  .msg .picon { width: 14px; height: 14px; vertical-align: -2px; margin-right: 5px; fill: var(--muted); }
+  .msg .author { font-weight: 700; color: #fff; }
+  .msg .badge { font-size: 11px; margin-right: 3px; filter: grayscale(1); }
+  .msg .amount { color: #fff; font-weight: 700; margin-left: 6px; border: 1px solid var(--line);
+                 border-radius: 6px; padding: 0 6px; font-size: 12px; }
+  .msg .sep { color: var(--dim); }
+  .msg .body { color: var(--muted); }
+  .msg img.emote { height: 22px; vertical-align: -6px; }
+  .feed-head { display: flex; align-items: center; gap: 10px; }
+  .feed-head .spacer { flex: 1; }
+  .counter { font-size: 12px; color: var(--muted); }
+
+  footer { margin-top: 20px; display: flex; gap: 10px; align-items: center; }
+  footer .right { margin-left: auto; display: flex; gap: 10px; }
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #fff; color: #000; padding: 10px 18px; border-radius: 10px;
+    font-size: 13px; font-weight: 600; opacity: 0; transition: opacity .25s;
+    pointer-events: none; z-index: 10;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">💬</div>
+    <div>
+      <h1>CHAT CONNECT</h1>
+      <div class="sub">Twitch + YouTube live chat, one stream, ready for OBS</div>
+    </div>
+    <div id="server-state">connecting…</div>
+  </header>
+
+  <div class="grid">
+    <!-- TWITCH -->
+    <div class="card">
+      <h2><svg class="picon" viewBox="0 0 24 24"><path d="M4.3 1 2 6.4v15.2h5.2V24h3l2.4-2.4h3.7L22 15.9V1H4.3zm15.6 13.9-3 3h-4.7l-2.4 2.4v-2.4H5.9V3.1h14v11.8zM17 6.9v5.9h-2V6.9h2zm-5.5 0v5.9h-2V6.9h2z"/></svg>
+        Twitch</h2>
+      <div class="status-line"><span class="dot" id="twitch-dot"></span>
+        <span class="status-text" id="twitch-status">not connected</span></div>
+      <label for="twitch-channel">Channel name</label>
+      <input type="text" id="twitch-channel" placeholder="e.g. french_five" spellcheck="false">
+      <div class="row">
+        <button class="btn-main" id="twitch-connect">Connect</button>
+        <button id="twitch-disconnect">Disconnect</button>
+      </div>
+      <div class="hint">Just the channel name (the part after <b>twitch.tv/</b>).
+        No password, no token — reading chat is public.</div>
+    </div>
+
+    <!-- YOUTUBE -->
+    <div class="card">
+      <h2><svg class="picon" viewBox="0 0 24 24"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8zM9.5 15.5v-7l6.3 3.5-6.3 3.5z"/></svg>
+        YouTube</h2>
+      <div class="status-line"><span class="dot" id="youtube-dot"></span>
+        <span class="status-text" id="youtube-status">not connected</span></div>
+      <label for="youtube-target">Channel handle or live video link</label>
+      <input type="text" id="youtube-target" placeholder="e.g. @quack_five  or  https://youtube.com/watch?v=…" spellcheck="false">
+      <label for="youtube-key">API key <span style="opacity:.7">(optional — leave empty for automatic mode)</span></label>
+      <input type="password" id="youtube-key" placeholder="only if you want to use the official YouTube API" spellcheck="false">
+      <div class="row">
+        <button class="btn-main" id="youtube-connect">Connect</button>
+        <button id="youtube-disconnect">Disconnect</button>
+      </div>
+      <div class="hint">With a <b>@handle</b> CHAT CONNECT waits for your stream and
+        reconnects on every new live automatically. Details in
+        <a href="https://github.com/frenchfive/OBS/blob/main/CHAT_CONNECT/SETUP_GUIDE.md" target="_blank">SETUP_GUIDE.md</a>.</div>
+    </div>
+
+    <!-- OBS OVERLAY -->
+    <div class="card full">
+      <h2>🎥 OBS chat overlay</h2>
+      <div class="hint" style="margin-top:6px">Add a <b>Browser</b> source in OBS with this URL —
+        then design the look in the visual editor (fonts, backgrounds, delay, …).
+        Saved styles apply to OBS instantly:</div>
+      <div class="urlbox"><code id="overlay-url">…</code>
+        <button class="copy" data-copy="overlay-url">Copy</button>
+        <button class="copy" id="overlay-open">Open</button></div>
+      <div class="row">
+        <button class="btn-main" id="editor-open">🎨 Customize overlay</button>
+      </div>
+    </div>
+
+    <!-- DEVELOPERS -->
+    <div class="card full">
+      <h2>🔌 Use the messages in your own code</h2>
+      <div class="hint" style="margin-top:6px">Every message is JSON. Connect with whatever you like:</div>
+      <div class="urlbox"><code id="ws-url">…</code><button class="copy" data-copy="ws-url">Copy</button></div>
+      <div class="urlbox"><code id="sse-url">…</code><button class="copy" data-copy="sse-url">Copy</button></div>
+      <div class="hint">WebSocket sends <code>{"type":"hello"|"chat"|"status"|"overlay", "data":…}</code> —
+        see <b>CHAT_CONNECT/README.md</b> and <b>example_consumer.py</b>.
+        The Duck (CHAT_YAPPER) plugs into exactly this.</div>
+    </div>
+
+    <!-- FEED -->
+    <div class="card full">
+      <div class="feed-head">
+        <h2>💬 Live feed</h2><span class="spacer"></span>
+        <span class="counter" id="counter">0 messages</span>
+        <button id="test-btn">Send test message</button>
+      </div>
+      <div id="feed"></div>
+    </div>
+  </div>
+
+  <footer>
+    <span class="hint">CHAT CONNECT runs locally on your PC — nothing is sent anywhere else.</span>
+    <div class="right"><button id="shutdown-btn">⏻ Stop server</button></div>
+  </footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const feed = $("feed");
+  const MAX_FEED = 200;
+  let lastId = 0, count = 0, ws = null, wsTimer = null;
+
+  // ---------------------------------------------------------------- helpers
+  const esc = s => String(s).replace(/[&<>"']/g,
+      c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+  function toast(text) {
+    const t = $("toast");
+    t.textContent = text;
+    t.classList.add("show");
+    clearTimeout(t._h);
+    t._h = setTimeout(() => t.classList.remove("show"), 2200);
+  }
+
+  async function api(path, body) {
+    const r = await fetch(path, { method: "POST", headers: {"Content-Type": "application/json"},
+                                  body: JSON.stringify(body || {}) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || data.ok === false) throw new Error(data.error || ("HTTP " + r.status));
+    return data;
+  }
+
+  const BADGE_ICONS = { broadcaster: "👑", moderator: "🛡️", vip: "💎",
+                        subscriber: "⭐", member: "⭐", verified: "✔️" };
+  const PICON = {
+    twitch: '<svg class="picon" viewBox="0 0 24 24"><path d="M4.3 1 2 6.4v15.2h5.2V24h3l2.4-2.4h3.7L22 15.9V1H4.3zm15.6 13.9-3 3h-4.7l-2.4 2.4v-2.4H5.9V3.1h14v11.8zM17 6.9v5.9h-2V6.9h2zm-5.5 0v5.9h-2V6.9h2z"/></svg>',
+    youtube: '<svg class="picon" viewBox="0 0 24 24"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8zM9.5 15.5v-7l6.3 3.5-6.3 3.5z"/></svg>',
+    test: "🧪",
+  };
+
+  function renderText(m) {
+    let html = esc(m.message);
+    for (const e of (m.emotes || [])) {
+      if (!e.url) continue;
+      const escaped = esc(e.text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      html = html.replace(new RegExp(escaped, "g"),
+        `<img class="emote" src="${esc(e.url)}" alt="${esc(e.text)}" title="${esc(e.text)}">`);
+    }
+    return html;
+  }
+
+  function addMessage(m) {
+    if (m.id <= lastId) return;
+    lastId = m.id;
+    count++;
+    const el = document.createElement("div");
+    el.className = "msg";
+    const time = new Date(m.timestamp * 1000).toTimeString().slice(0, 5);
+    const badges = (m.badges || []).map(b => BADGE_ICONS[b] ? `<span class="badge" title="${esc(b)}">${BADGE_ICONS[b]}</span>` : "").join("");
+    el.innerHTML =
+      `<span class="time">${time}</span>${PICON[m.platform] || ""}` +
+      `${badges}<span class="author">${esc(m.author)}</span>` +
+      `${m.amount ? `<span class="amount">${esc(m.amount)}</span>` : ""}` +
+      `<span class="sep"> : </span><span class="body">${renderText(m)}</span>`;
+    feed.appendChild(el);
+    while (feed.children.length > MAX_FEED) feed.removeChild(feed.firstChild);
+    feed.scrollTop = feed.scrollHeight;
+    $("counter").textContent = count + " message" + (count === 1 ? "" : "s");
+  }
+
+  function setStatus(s) {
+    const dot = $(s.platform + "-dot"), text = $(s.platform + "-status");
+    if (!dot) return;
+    dot.className = "dot " + s.state;
+    const labels = { disconnected: "not connected", connecting: "connecting…",
+                     waiting: "waiting for live…", connected: "connected", error: "error" };
+    text.innerHTML = `<b>${labels[s.state] || s.state}</b>` +
+      (s.target ? ` · ${esc(s.target)}` : "") +
+      (s.detail ? ` — ${esc(s.detail)}` : "");
+    if (s.state === "connected" && s.target) {
+      const input = $(s.platform === "twitch" ? "twitch-channel" : "youtube-target");
+      if (input && !input.value) input.value = s.target;
+    }
+  }
+
+  // -------------------------------------------------------------- websocket
+  function connectWS() {
+    ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onopen = () => {
+      $("server-state").textContent = "● server online";
+      $("server-state").classList.remove("offline");
+    };
+    ws.onmessage = ev => {
+      const { type, data } = JSON.parse(ev.data);
+      if (type === "hello") {
+        Object.values(data.status).forEach(setStatus);
+        data.history.forEach(addMessage);
+      } else if (type === "chat") addMessage(data);
+      else if (type === "status") setStatus(data);
+    };
+    ws.onclose = () => {
+      $("server-state").textContent = "server offline — retrying…";
+      $("server-state").classList.add("offline");
+      clearTimeout(wsTimer);
+      wsTimer = setTimeout(connectWS, 2000);
+    };
+  }
+  connectWS();
+
+  // ---------------------------------------------------------------- buttons
+  $("twitch-connect").onclick = () =>
+    api("/api/connect", { platform: "twitch", channel: $("twitch-channel").value })
+      .then(() => toast("Connecting to Twitch…")).catch(e => toast("⚠ " + e.message));
+  $("twitch-disconnect").onclick = () =>
+    api("/api/disconnect", { platform: "twitch" })
+      .then(() => toast("Twitch disconnected")).catch(e => toast("⚠ " + e.message));
+  $("youtube-connect").onclick = () =>
+    api("/api/connect", { platform: "youtube", target: $("youtube-target").value,
+                          api_key: $("youtube-key").value })
+      .then(() => toast("Connecting to YouTube…")).catch(e => toast("⚠ " + e.message));
+  $("youtube-disconnect").onclick = () =>
+    api("/api/disconnect", { platform: "youtube" })
+      .then(() => toast("YouTube disconnected")).catch(e => toast("⚠ " + e.message));
+  $("test-btn").onclick = () =>
+    api("/api/test").then(() => {}).catch(e => toast("⚠ " + e.message));
+  $("shutdown-btn").onclick = () => {
+    if (!confirm("Stop the CHAT CONNECT server?\nOverlay and connected tools will stop receiving messages.")) return;
+    api("/api/shutdown").then(() => toast("Server stopping…")).catch(() => {});
+  };
+
+  ["twitch-channel", "youtube-target"].forEach(id =>
+    $(id).addEventListener("keydown", e => {
+      if (e.key === "Enter") $(id === "twitch-channel" ? "twitch-connect" : "youtube-connect").click();
+    }));
+
+  // ------------------------------------------------------------------- urls
+  $("overlay-url").textContent = `http://${location.host}/overlay`;
+  $("ws-url").textContent = `ws://${location.host}/ws`;
+  $("sse-url").textContent = `http://${location.host}/events   (Server-Sent Events)`;
+  $("overlay-open").onclick = () => window.open(`http://${location.host}/overlay`, "_blank");
+  $("editor-open").onclick = () => window.open(`http://${location.host}/editor`, "_blank");
+  document.querySelectorAll(".copy[data-copy]").forEach(btn => btn.onclick = () => {
+    const text = $(btn.dataset.copy).textContent.split("   ")[0];
+    (navigator.clipboard ? navigator.clipboard.writeText(text)
+                         : Promise.reject()).then(() => toast("Copied: " + text))
+      .catch(() => { prompt("Copy this URL:", text); });
+  });
+})();
+</script>
+</body>
+</html>

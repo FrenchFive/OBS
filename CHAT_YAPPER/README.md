@@ -104,8 +104,9 @@ The Duck never fails silently:
 
 ## Behaviour details
 
-- Reads `message_clean` (emotes/emoji codes stripped) — the Duck doesn't try
-  to pronounce `french210Love`.
+- Reads `message_clean` (emote codes stripped) and additionally removes all
+  **emojis** — the Duck pronounces neither `french210Love` nor `🔥🔥🔥`.
+  Messages that are only emotes/emojis are skipped entirely (no duck pop-up).
 - Announces the author as `name · Twitch` / `name · YouTube` in the
   `PYTHON_AUTHOR` text source.
 - If chat goes faster than the Duck can talk, it keeps the **5 newest**

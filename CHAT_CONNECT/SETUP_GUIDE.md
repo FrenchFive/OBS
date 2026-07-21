@@ -570,10 +570,11 @@ No — CHAT CONNECT is read-only by design. Nothing can post as you, ban anyone,
 or touch your account, because it never has any of your credentials.
 
 **Are emotes and emojis shown?**
-Yes. Normal emojis (😍🔥) display everywhere, Twitch channel/global emotes and
-YouTube channel emotes display as images in the overlay and dashboard, and
-they are stripped from `message_clean` so the Duck doesn't try to pronounce
-them. Third-party emotes (BTTV/FFZ/7TV) are not supported yet.
+Yes. Normal emojis (😍🔥) display everywhere, and Twitch channel/global
+emotes and YouTube channel emotes display as images in the overlay and
+dashboard. The Duck is the exception on purpose: it reads **neither emotes
+nor emojis** aloud (emoji-only spam is skipped completely). Third-party
+emotes (BTTV/FFZ/7TV) are not supported yet.
 
 **Does it see who subscribed / raids / channel points?**
 Not yet — it reads chat messages (including YouTube Super Chats). Events like

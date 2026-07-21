@@ -13,14 +13,16 @@ Nothing stays silent when it breaks:
   * live status is reported to the CHAT CONNECT dashboard (Duck card)
   * everything is also written to the console / yapper.log
 
-Optional .env: KEY_OPENAI for the fancy OpenAI voices (falls back to the free
-offline pyttsx3 voice without it).
+Optional .env: ELEVENLABS_API_KEY and/or KEY_OPENAI for AI voices; without
+any key the Duck falls back to Windows' built-in voice (then pyttsx3).
+Emotes AND emojis are stripped before speaking - emoji-only spam is skipped.
 """
 
 import asyncio
 import json
 import os
 import random
+import re
 import socket
 import subprocess
 import sys
@@ -574,10 +576,27 @@ def show_tts(message, author):
 
 PLATFORM_LABEL = {"twitch": "Twitch", "youtube": "YouTube"}
 
+# Emojis / pictographs: covers emoticons, symbols, flags, dingbats, stars,
+# clocks, skin tones, ZWJ sequences and keycaps. The Duck skips them so
+# "🔥🔥🔥🔥" doesn't get read out loud (emoji-only messages are skipped).
+EMOJI_RE = re.compile(
+    "[\u200d\u20e3\ufe0e\ufe0f"      # ZWJ, keycap, variation selectors
+    "\u2300-\u23ff"                    # technical: clocks, play buttons
+    "\u2600-\u27bf"                    # misc symbols + dingbats
+    "\u2b00-\u2bff"                    # stars, squares
+    "\U0001F000-\U0001FAFF]+"          # all main emoji blocks + flags
+)
+
+
+def strip_emoji(text: str) -> str:
+    return " ".join(EMOJI_RE.sub(" ", text).split())
+
 
 def speak_message(msg: dict):
-    # message_clean = text with emotes/emoji-codes stripped -> best for TTS
-    text = (msg.get("message_clean") or msg.get("message") or "")[:MAX_CHARS].strip()
+    # message_clean = text with emote codes stripped; emojis go too -> pure
+    # speakable text for the TTS
+    text = (msg.get("message_clean") or msg.get("message") or "")
+    text = strip_emoji(text)[:MAX_CHARS].strip()
     if not text:
         return
     author = msg.get("author", "someone")

@@ -25,13 +25,19 @@ messages.
   or optionally via the official YouTube Data API v3 if you provide a key.
 - **Set-and-forget YouTube.** Give it your `@handle` and it waits for your
   stream, attaches when you go live, and re-arms after the stream ends.
-- **Web dashboard** with live connection status, merged feed, test-message
-  injection and a stop button.
+- **Web dashboard** (black & white) with live connection status, merged feed,
+  test-message injection and a stop button.
 - **OBS-ready overlay** (transparent, animated, emote images, badges, Super
-  Chat highlight, configurable via URL parameters).
+  Chat highlight) with a **visual editor** at `/editor`: live preview on
+  sample messages, saved server-side, pushed to open overlays instantly.
+  Font size, message duration, username truncation, window/message
+  backgrounds with opacity, platform logos, timestamps, chat delay
+  (to sync with the Duck TTS), position, shadow.
 - **Open firehose** for your own code: WebSocket, SSE and REST — all local.
 - **Background friendly**: `run_background.bat` (silent) + `stop.bat`,
   auto-reconnect everywhere, config persisted in `config.json`.
+- **OBS auto-launch**: add `obs_autolaunch.lua` in OBS (Tools → Scripts) and
+  opening OBS starts CHAT CONNECT + the Duck; closing OBS stops them.
 
 ## Quick start
 
@@ -54,12 +60,16 @@ CLI options: `main.py [--port 2428] [--host 127.0.0.1] [--open] [--log-file serv
 | `youtube_chat.py` | YouTube reader (automatic InnerTube mode + official API mode) |
 | `web/index.html` | dashboard |
 | `web/overlay.html` | OBS overlay |
+| `web/editor.html` | visual overlay style editor |
+| `obs_autolaunch.lua` | OBS script: start/stop everything with OBS |
+| `autolaunch.bat` | silent starter used by the OBS script |
 | `example_consumer.py` | smallest possible WebSocket consumer |
 | `SETUP_GUIDE.md` | the full beginner walkthrough |
 
 `config.json` (auto-created, git-ignored) stores host/port, saved channels,
-autoconnect flags, the optional YouTube API key, and `log_chat_to_file`
-(set `true` to also append every message to `chat_log.jsonl`).
+autoconnect flags, the optional YouTube API key, the saved overlay style, and
+`log_chat_to_file` (set `true` to also append every message to
+`chat_log.jsonl`).
 
 ## API reference
 
@@ -75,15 +85,18 @@ All endpoints live on `http://127.0.0.1:2428`.
 Every frame is an envelope:
 
 ```json
-{ "type": "hello" | "chat" | "status", "data": { … } }
+{ "type": "hello" | "chat" | "status" | "overlay", "data": { … } }
 ```
 
 - **`hello`** — sent once on connect: `data.history` (recent messages,
-  oldest→newest) and `data.status` (current per-platform status). Consumers
-  that act on messages (TTS!) should ignore `history`.
+  oldest→newest), `data.status` (current per-platform status) and
+  `data.overlay` (the saved overlay style). Consumers that act on messages
+  (TTS!) should ignore `history`.
 - **`chat`** — one new chat message (schema below).
 - **`status`** — `{platform, state, detail, target}` with `state` one of
   `disconnected | connecting | waiting | connected | error`.
+- **`overlay`** — the overlay style was saved in the editor; `data` is the
+  full new settings object (overlays restyle themselves live on this).
 
 ### Chat message schema
 
@@ -111,6 +124,8 @@ Every frame is an envelope:
 |---|---|---|
 | `GET /api/status` | – | current status + endpoint list |
 | `GET /api/messages` | `?since=<id>&limit=100` | history after id (max 300 kept) |
+| `GET /api/overlay` | – | saved overlay style |
+| `POST /api/overlay` | `{size, fade, max, name_max, window_bg, window_bg_opacity, msg_bg, msg_bg_opacity, show_platform, show_time, delay, align, shadow}` | save style + push to open overlays |
 | `POST /api/connect` | `{"platform":"twitch","channel":"name"}` | connect Twitch |
 | `POST /api/connect` | `{"platform":"youtube","target":"@handle or URL","api_key":""}` | connect YouTube (key optional) |
 | `POST /api/disconnect` | `{"platform":"twitch"\|"youtube"}` | disconnect + disable autoconnect |
@@ -130,10 +145,13 @@ curl http://localhost:2428/api/messages?since=0     # poll
 curl -N http://localhost:2428/events                # realtime SSE
 ```
 
-### Overlay parameters
+### Overlay styling
 
-`/overlay?size=18&max=12&fade=0&bg=0&align=bottom&shadow=1` — see
-[SETUP_GUIDE.md §8](SETUP_GUIDE.md#8-show-the-chat-in-obs-overlay) for the table.
+Style lives server-side and is edited visually at `/editor` (live preview,
+instant apply, persisted). URL params override single settings per browser
+source: `size, fade, max, name, bg, winbg, platform, time, delay, align,
+shadow` — table in
+[SETUP_GUIDE.md §9](SETUP_GUIDE.md#9-make-it-look-how-you-want-overlay-editor).
 
 ## Notes & limits
 

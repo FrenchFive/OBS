@@ -40,11 +40,23 @@ exactly these names:
 ```bat
 install.bat                      (once)
 copy .env.example .env           (optional - only to set keys/passwords)
-run.bat
+run.bat                          (console window)
 ```
 
 Start order: **CHAT CONNECT → OBS → CHAT YAPPER**. (Wrong order is fine too —
 the Duck waits for OBS and retries CHAT CONNECT every 5 s until they're up.)
+
+Other ways to run it:
+
+- **`run_background.bat`** — no window; output goes to `yapper.log`.
+  Stop it with **`stop.bat`**.
+- **Auto-start with OBS (best)** — add `CHAT_CONNECT/obs_autolaunch.lua` in
+  OBS (Tools → Scripts): opening OBS starts CHAT CONNECT + the Duck, closing
+  OBS stops them. Setup steps in
+  [`../CHAT_CONNECT/SETUP_GUIDE.md` §13](../CHAT_CONNECT/SETUP_GUIDE.md#13-start-everything-automatically-with-obs).
+
+Only one Duck can run at a time (a second copy exits by itself), so clicking
+`run.bat` while the auto-launched one is active is harmless.
 
 ## `.env` settings (all optional)
 
@@ -67,3 +79,8 @@ OBS_PASSWORD=                            # if you set one in OBS
 - Old history is never read on startup/reconnect (only live messages).
 - The **Send test message** button on the CHAT CONNECT dashboard makes the
   Duck talk without being live — great for testing volume and layout.
+- The voice takes a moment to generate, so it runs slightly behind the
+  on-screen chat — set **Chat delay** in the overlay editor
+  (`http://localhost:2428/editor`) to line the overlay up with the Duck.
+- When launched by the OBS auto-launcher, the Duck runs in "follow mode":
+  it exits automatically when CHAT CONNECT stops (i.e. when OBS closes).

@@ -21,10 +21,14 @@ live chat** into one local stream on `http://localhost:2428`:
 
 - 🖥️ **Web dashboard** to connect/disconnect channels and watch the merged feed
 - 🎥 **Clean OBS overlay** (browser source: `http://localhost:2428/overlay`)
+  with a **visual style editor** (`/editor`): live preview, saved settings,
+  fonts / backgrounds / timestamps / name truncation / chat delay…
 - 🔌 **Open local API** (WebSocket / SSE / REST) so any script can read the
   messages — the Duck, bots, games, whatever
 - 🔑 **No credentials needed** — anonymous Twitch reading, no-API-key YouTube
   mode (official API key supported as an option)
+- 🚀 **Auto-start with OBS** — one Lua script and opening OBS launches
+  everything, closing OBS stops it
 
 ➡️ Beginner walkthrough: [`CHAT_CONNECT/SETUP_GUIDE.md`](CHAT_CONNECT/SETUP_GUIDE.md)
 · Tech/API docs: [`CHAT_CONNECT/README.md`](CHAT_CONNECT/README.md)

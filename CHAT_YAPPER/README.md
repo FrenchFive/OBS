@@ -17,9 +17,15 @@ Twitch + YouTube ──► CHAT CONNECT (ws://127.0.0.1:2428/ws) ──► CHAT 
 - **OBS** with the WebSocket server enabled:
   *Tools → WebSocket Server Settings → Enable WebSocket server* (port `4455`).
   If you set a password there, put it in `.env` (see below).
-- *(Optional)* an **OpenAI API key** for the fancy random voices
-  (`gpt-4o-mini-tts`). Without a key the Duck falls back to the free offline
-  Windows voice (pyttsx3).
+- *(Optional)* an **ElevenLabs API key** and/or an **OpenAI API key** for AI
+  voices. No key (or a broken key/package)? The Duck automatically uses
+  **Windows' built-in voice** instead — it always has a voice. Full fallback
+  chain: **ElevenLabs → OpenAI → Windows voice → pyttsx3**. The engines are
+  tested at startup and the active voice is shown on the dashboard's Duck
+  card. ElevenLabs options in `.env`: `ELEVENLABS_API_KEY`, optional
+  `ELEVENLABS_VOICE_IDS` (comma-separated ids from your VoiceLab; empty =
+  rotate through built-in voices) and `ELEVENLABS_MODEL`
+  (default `eleven_flash_v2_5`).
 
 ## OBS scene setup (one time)
 

@@ -27,6 +27,16 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo Checking the install...
+".venv\Scripts\python.exe" -c "import aiohttp" >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo [ERROR] The install looks broken. Delete the .venv folder and
+    echo         run install.bat again.
+    pause
+    exit /b 1
+)
+
 echo.
 echo ============================================
 echo  Done! Double-click run.bat to start.

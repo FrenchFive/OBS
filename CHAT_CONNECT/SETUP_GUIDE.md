@@ -530,9 +530,17 @@ card** — the Duck reports its exact problem there:
 - *"OBS is missing a source named …"* → create/rename the sources in OBS:
   `PYTHON_TTS` (media source), `PYTHON_AUTHOR` (text), group `CHAT_YAPPING`
   in your scene — names must match EXACTLY (see `CHAT_YAPPER/README.md`).
-- *"OpenAI TTS failed"* → check `KEY_OPENAI` in `CHAT_YAPPER\.env`; the Duck
-  keeps talking with the offline voice meanwhile.
+- *"ElevenLabs/OpenAI voices is not working"* → check `ELEVENLABS_API_KEY` /
+  `KEY_OPENAI` in `CHAT_YAPPER\.env` (and your ElevenLabs character quota);
+  the Duck keeps talking with the built-in Windows voice meanwhile.
 Real errors also open a **Windows pop-up**, even in background mode.
+
+**Errors mentioning `pydantic_core` or `_win32sysloader` / DLL load failed**
+→ Broken compiled packages inside `CHAT_YAPPER\.venv`. Re-run
+`CHAT_YAPPER\install.bat` — it now detects this and repairs the packages by
+itself. Even unrepaired, the Duck still speaks: it falls back to **Windows'
+built-in voice**, which needs no Python packages at all. If everything else
+fails, delete the `CHAT_YAPPER\.venv` folder and run `install.bat` again.
 
 **The Duck says "CHAT CONNECT is not running"**
 → Start order: CHAT CONNECT first. The Duck retries every 5 s, so just start

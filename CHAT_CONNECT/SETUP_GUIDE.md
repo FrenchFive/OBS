@@ -346,6 +346,11 @@ Full details live in `CHAT_YAPPER/README.md`, short version:
 The Duck now quacks Twitch AND YouTube messages, and says who wrote them and
 from which platform.
 
+**Picking ElevenLabs voices:** with an `ELEVENLABS_API_KEY` in
+`CHAT_YAPPER\.env`, the Duck card on the dashboard grows a **🎤 ElevenLabs
+voices** section: press ▶ to listen to samples, tick the voices you like,
+**Save voices** — applied instantly, remembered forever.
+
 **Is it working?** Look at the dashboard: the top banner sums up everything
 (`✔ Twitch · ✔ YouTube · ✔ Duck — everything is working`) and the **CHAT
 YAPPER card** shows the Duck's live status. On startup the Duck checks its

@@ -121,19 +121,29 @@ class ChatHub:
         if native_id:
             self._seen_native.append((platform, native_id))
 
-    def set_tool_status(self, tool: str, state: str, detail: str = ""):
+    def set_tool_status(self, tool: str, state: str, detail: str = "",
+                        extra: dict | None = None):
         """Status heartbeat from an external tool (e.g. the Duck TTS).
 
         Stored with a timestamp so the dashboard can tell 'running' from
         'stopped reporting', and broadcast as a {"type": "tool"} event.
+        `extra` carries tool-specific data (the Duck sends its ElevenLabs
+        voice catalog + current selection for the dashboard's voice picker).
         """
         st = {"tool": tool, "state": state, "detail": detail,
               "updated": round(time.time(), 3)}
+        if extra:
+            st["extra"] = extra
         previous = self.tools.get(tool)
         self.tools[tool] = st
         self._broadcast({"type": "tool", "data": dict(st)})
         if not previous or (previous["state"], previous["detail"]) != (state, detail):
             log.info("tool %s: %s %s", tool, state, ("- " + detail) if detail else "")
+
+    def broadcast_command(self, data: dict):
+        """Relay a command (e.g. from the dashboard) to connected tools."""
+        self._broadcast({"type": "command", "data": data})
+        log.info("command for %s: %s", data.get("tool"), data.get("action"))
 
     def clear(self):
         """Wipe history and tell every page (overlay, dashboard) to clear its chat.

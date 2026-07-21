@@ -86,12 +86,17 @@ KEY_OPENAI = os.getenv("KEY_OPENAI")
 KEY_ELEVENLABS = os.getenv("ELEVENLABS_API_KEY")
 ELEVENLABS_MODEL = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5")
 # Premade voices every ElevenLabs account has; override with your own ids
-# via ELEVENLABS_VOICE_IDS=id1,id2 (one id = always that voice)
+# via ELEVENLABS_VOICE_IDS=id1,id2 - or simply pick voices on the CHAT
+# CONNECT dashboard (Duck card), which saves to voices.json and wins.
 ELEVENLABS_VOICES = [v.strip() for v in os.getenv(
     "ELEVENLABS_VOICE_IDS",
     "21m00Tcm4TlvDq8ikWAM,pNInz6obpgDQGcFmaJgB,ErXwobaYiN019PkySvjV,"
     "EXAVITQu4vr4xnSDxMaL,TxGEqnHWrfWFTfGW9XjX,MF3mGyEYCl7XYWbV9V6O"
 ).split(",") if v.strip()]
+DEFAULT_ELEVEN_VOICES = list(ELEVENLABS_VOICES)
+VOICES_FILE = f"{script_path}/voices.json"
+VOICE_CATALOG = []        # fetched from ElevenLabs: [{"id","name","desc","preview_url"}]
+REPORT_NOW = None         # asyncio.Event set to push a status update immediately
 
 OBS_HOST = os.getenv("OBS_HOST", "localhost")
 OBS_PORT = int(os.getenv("OBS_PORT", "4455"))
@@ -183,12 +188,21 @@ async def status_reporter():
     url = http_base(CHAT_CONNECT_WS) + "/api/tool-status"
     async with aiohttp.ClientSession() as session:
         while True:
+            payload = {"tool": "yapper", **STATUS}
+            if VOICE_CATALOG:
+                payload["extra"] = {"voices": VOICE_CATALOG,
+                                    "selected": ELEVENLABS_VOICES,
+                                    "defaults": DEFAULT_ELEVEN_VOICES}
             try:
-                await session.post(url, json={"tool": "yapper", **STATUS},
+                await session.post(url, json=payload,
                                    timeout=aiohttp.ClientTimeout(total=4))
             except Exception:
                 pass  # hub not up - the chat listener already handles retrying
-            await asyncio.sleep(8)
+            try:  # wait 8s, but wake instantly when something changed
+                await asyncio.wait_for(REPORT_NOW.wait(), timeout=8)
+                REPORT_NOW.clear()
+            except asyncio.TimeoutError:
+                pass
 
 
 # ------------------------------------------------------------------- OBS
@@ -387,6 +401,74 @@ ACTIVE_VOICE = None       # index into VOICE_CHAIN, None = nothing works
 VOICE_LABEL = "checking..."
 
 
+# ------------------------------------ ElevenLabs voice picking (dashboard)
+
+def load_saved_voices():
+    """voices.json (written by the dashboard picker) beats the .env list."""
+    global ELEVENLABS_VOICES
+    try:
+        with open(VOICES_FILE, encoding="utf-8") as f:
+            ids = [v for v in json.load(f).get("voices", []) if isinstance(v, str)]
+        if ids:
+            ELEVENLABS_VOICES = ids
+            print(f"-- using {len(ids)} ElevenLabs voice(s) picked on the dashboard")
+    except FileNotFoundError:
+        pass
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"!! voices.json unreadable ({e}) - using the default voices")
+
+
+def save_voices(ids):
+    global ELEVENLABS_VOICES
+    ELEVENLABS_VOICES = ids or list(DEFAULT_ELEVEN_VOICES)
+    try:
+        with open(VOICES_FILE, "w", encoding="utf-8") as f:
+            json.dump({"voices": ids}, f, indent=2)
+    except OSError as e:
+        print(f"!! could not save voices.json: {e}")
+
+
+def fetch_voice_catalog():
+    """Ask ElevenLabs which voices this account can use (for the dashboard)."""
+    global VOICE_CATALOG
+    if not KEY_ELEVENLABS:
+        return
+    import urllib.request
+    req = urllib.request.Request("https://api.elevenlabs.io/v1/voices",
+                                 headers={"xi-api-key": KEY_ELEVENLABS})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.load(resp)
+        catalog = []
+        for v in data.get("voices", [])[:80]:
+            labels = v.get("labels") or {}
+            desc = " · ".join(str(x) for x in (
+                labels.get("gender"), labels.get("accent"), labels.get("age"),
+                labels.get("descriptive") or labels.get("description")) if x)
+            if v.get("voice_id") and v.get("name"):
+                catalog.append({"id": v["voice_id"], "name": v["name"],
+                                "desc": desc, "preview_url": v.get("preview_url") or ""})
+        VOICE_CATALOG = catalog
+        print(f"-- ElevenLabs: {len(catalog)} voices available - "
+              "pick your set on the dashboard (Duck card)")
+    except Exception as e:
+        print(f"!! could not fetch the ElevenLabs voice list ({e})")
+
+
+def handle_command(cmd: dict):
+    """Commands sent from the dashboard through CHAT CONNECT."""
+    if cmd.get("action") == "set_voices":
+        ids = [v for v in cmd.get("voices", []) if isinstance(v, str)][:40]
+        known = {c["id"] for c in VOICE_CATALOG}
+        if known:
+            ids = [v for v in ids if v in known]
+        save_voices(ids)
+        print(f"-- voice selection updated from the dashboard: "
+              f"{len(ids) if ids else 'default'} voice(s)")
+        if REPORT_NOW:
+            REPORT_NOW.set()
+
+
 def build_voice_chain():
     global VOICE_CHAIN
     VOICE_CHAIN = []
@@ -541,6 +623,11 @@ async def listen_chat_connect(queue: asyncio.Queue):
                         if frame.type != aiohttp.WSMsgType.TEXT:
                             continue
                         event = json.loads(frame.data)
+                        if event.get("type") == "command":
+                            data = event.get("data") or {}
+                            if data.get("tool") == "yapper":
+                                handle_command(data)
+                            continue
                         # "hello" carries old history - never read that aloud.
                         if event.get("type") != "chat":
                             continue
@@ -561,13 +648,18 @@ async def listen_chat_connect(queue: asyncio.Queue):
 
 
 async def main():
+    global REPORT_NOW
+    REPORT_NOW = asyncio.Event()
     ensure_empty_wav()
+    load_saved_voices()
     build_voice_chain()
     refresh_status()
     asyncio.create_task(status_reporter())
     asyncio.create_task(source_recheck_loop())
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, preflight_voices)
+    await loop.run_in_executor(None, fetch_voice_catalog)
+    REPORT_NOW.set()
     await loop.run_in_executor(None, obs_connect_blocking)
     await loop.run_in_executor(None, run_source_check, True)
     queue = asyncio.Queue(maxsize=MAX_QUEUE)

@@ -98,6 +98,27 @@
   .banner b { color: #fff; }
   .banner .item { white-space: nowrap; }
 
+  details.voices { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px;
+                   background: var(--panel2); }
+  details.voices summary { padding: 10px 14px; cursor: pointer; font-size: 13.5px;
+                           font-weight: 600; color: var(--text); }
+  details.voices summary:hover { color: #fff; }
+  .voices-inner { padding: 4px 14px 14px; }
+  #voice-list { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 18px;
+                margin: 10px 0; max-height: 300px; overflow-y: auto; }
+  @media (max-width: 860px) { #voice-list { grid-template-columns: 1fr; } }
+  .voice { display: flex; align-items: center; gap: 9px; padding: 5px 6px;
+           border-radius: 7px; cursor: pointer; }
+  .voice:hover { background: rgba(255,255,255,.05); }
+  .voice input { accent-color: #fff; }
+  .voice .vname { font-size: 13.5px; font-weight: 600; }
+  .voice .vdesc { font-size: 11.5px; color: var(--dim, #5c5c5c); flex: 1;
+                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .voice .vplay { border: 1px solid var(--line); background: transparent;
+                  color: var(--muted); border-radius: 6px; padding: 2px 9px;
+                  font-size: 11px; flex: none; }
+  .voice .vplay:hover, .voice .vplay.playing { color: #fff; border-color: #fff; }
+
   footer { margin-top: 20px; display: flex; gap: 10px; align-items: center; }
   footer .right { margin-left: auto; display: flex; gap: 10px; }
   .toast {
@@ -166,6 +187,18 @@
       <div class="hint">The Duck reports here live. If something is wrong (missing OBS
         sources, voice/key problems, OBS unreachable) the exact reason shows up above —
         and the Duck also opens a Windows pop-up for real errors, even in background mode.</div>
+      <details class="voices" id="voices-box" style="display:none">
+        <summary>🎤 ElevenLabs voices — <span id="voices-count">default set</span></summary>
+        <div class="voices-inner">
+          <div class="hint">Tick the voices the Duck should rotate through, press
+            <b>▶</b> to hear a sample, then save. No ticks = the default set.
+            The Duck switches instantly, no restart needed.</div>
+          <div id="voice-list"></div>
+          <div class="row" style="margin-top:4px">
+            <button class="btn-main" id="voices-save">Save voices</button>
+          </div>
+        </div>
+      </details>
     </div>
 
     <!-- OBS OVERLAY -->
@@ -319,7 +352,73 @@
     $("duck-dot").className = "dot " + d.cls;
     $("duck-status").innerHTML = `<b>${esc(d.label)}</b>` +
       (d.detail ? ` — ${esc(d.detail)}` : "");
+    renderVoices();
   }
+
+  // --------------------------------------------- ElevenLabs voice picker
+  let voiceCatalogKey = "", voiceSelected = new Set(),
+      voicesDirty = false, voiceAudio = null;
+
+  function renderVoices() {
+    const t = tools["yapper"], box = $("voices-box");
+    const extra = t && t.extra;
+    if (!extra || !extra.voices || !extra.voices.length) {
+      box.style.display = "none";
+      return;
+    }
+    box.style.display = "";
+    const key = extra.voices.map(v => v.id).join(",");
+    if (key !== voiceCatalogKey) {              // (re)build the list
+      voiceCatalogKey = key;
+      voicesDirty = false;
+      voiceSelected = new Set(extra.selected || []);
+      $("voice-list").innerHTML = extra.voices.map(v => `
+        <label class="voice" data-id="${esc(v.id)}">
+          <input type="checkbox" ${voiceSelected.has(v.id) ? "checked" : ""}>
+          <span class="vname">${esc(v.name)}</span>
+          <span class="vdesc">${esc(v.desc || "")}</span>
+          ${v.preview_url ? `<button class="vplay" data-url="${esc(v.preview_url)}" title="play a sample">▶</button>` : ""}
+        </label>`).join("");
+    } else if (!voicesDirty) {                  // follow the Duck's selection
+      const now = new Set(extra.selected || []);
+      if ([...now].join(",") !== [...voiceSelected].join(",")) {
+        voiceSelected = now;
+        document.querySelectorAll("#voice-list .voice").forEach(row =>
+          row.querySelector("input").checked = voiceSelected.has(row.dataset.id));
+      }
+    }
+    $("voices-count").textContent = voiceSelected.size
+      ? voiceSelected.size + " selected" : "default set";
+  }
+
+  $("voice-list").addEventListener("change", e => {
+    const row = e.target.closest(".voice");
+    if (!row) return;
+    voicesDirty = true;
+    if (e.target.checked) voiceSelected.add(row.dataset.id);
+    else voiceSelected.delete(row.dataset.id);
+    $("voices-count").textContent = voiceSelected.size
+      ? voiceSelected.size + " selected" : "default set";
+  });
+
+  $("voice-list").addEventListener("click", e => {
+    const btn = e.target.closest(".vplay");
+    if (!btn) return;
+    e.preventDefault();                          // don't toggle the checkbox
+    document.querySelectorAll(".vplay.playing").forEach(b => b.classList.remove("playing"));
+    if (voiceAudio) { voiceAudio.pause(); voiceAudio = null; }
+    voiceAudio = new Audio(btn.dataset.url);
+    btn.classList.add("playing");
+    voiceAudio.onended = () => btn.classList.remove("playing");
+    voiceAudio.play().catch(() => btn.classList.remove("playing"));
+  });
+
+  $("voices-save").onclick = () =>
+    api("/api/tool-command", { tool: "yapper", action: "set_voices",
+                               voices: [...voiceSelected] })
+      .then(() => { voicesDirty = false;
+                    toast("Voices saved — the Duck switches instantly"); })
+      .catch(e => toast("⚠ " + e.message));
 
   function renderHealth() {
     const parts = [];

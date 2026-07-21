@@ -74,6 +74,17 @@ OBS_PORT=4455
 OBS_PASSWORD=                            # if you set one in OBS
 ```
 
+## Choosing your ElevenLabs voices
+
+With `ELEVENLABS_API_KEY` set, open the CHAT CONNECT dashboard
+(`http://localhost:2428`) while the Duck runs: the Duck card grows a
+**"🎤 ElevenLabs voices"** section listing every voice on your account —
+including any you add from the ElevenLabs Voice Library on their site.
+Press **▶** to hear a sample, tick the ones the Duck should rotate through,
+and hit **Save voices** — the Duck switches instantly and remembers the set
+(`voices.json`). No ticks = a default rotation. (`ELEVENLABS_VOICE_IDS` in
+`.env` still works as a manual override when nothing was picked.)
+
 ## Knowing that it works (and why it doesn't)
 
 The Duck never fails silently:

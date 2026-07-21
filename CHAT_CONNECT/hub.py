@@ -120,6 +120,16 @@ class ChatHub:
         if native_id:
             self._seen_native.append((platform, native_id))
 
+    def clear(self):
+        """Wipe history and tell every page (overlay, dashboard) to clear its chat.
+
+        Ids keep counting up and the platform dedupe guard stays, so consumers
+        tracking `since` and reconnecting sources are unaffected.
+        """
+        self.history.clear()
+        self._broadcast({"type": "clear", "data": {}})
+        log.info("chat cleared")
+
     def set_status(self, platform: str, state: str, detail: str = "", target: str | None = None):
         """state: disconnected | connecting | waiting | connected | error"""
         st = self.status[platform]

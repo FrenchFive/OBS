@@ -49,10 +49,11 @@ OBS_PASSWORD = os.getenv("OBS_PASSWORD", "")
 MAX_QUEUE = 5          # messages waiting to be spoken; oldest dropped beyond this
 MAX_CHARS = 1000       # safety limit per message
 
-# Follow mode (set by autolaunch.bat / the OBS auto-launcher): once CHAT
-# CONNECT has been seen alive, exit when it goes away instead of retrying
-# forever - closing OBS then cleans up the Duck automatically.
-EXIT_WITH_SERVER = os.getenv("CHAT_YAPPER_EXIT_WITH_SERVER", "") == "1"
+# Follow mode (set by the OBS auto-launcher): once CHAT CONNECT has been
+# seen alive, exit when it goes away instead of retrying forever - closing
+# OBS then cleans up the Duck automatically.
+EXIT_WITH_SERVER = (os.getenv("CHAT_YAPPER_EXIT_WITH_SERVER", "") == "1"
+                    or "--exit-with-server" in sys.argv)
 
 # Single-instance lock: holding this port claims "the Duck is running".
 # A second copy (e.g. OBS autolaunch while it's already up) exits quietly.

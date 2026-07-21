@@ -130,8 +130,9 @@
         <input type="number" id="size" min="8" max="80">
       </div>
       <div class="ctl">
-        <label for="shadow">Text shadow <small>readability on bright scenes</small></label>
-        <span class="switch"><input type="checkbox" id="shadow"><span class="slider-ui"></span></span>
+        <label for="shadow_strength">Text shadow <small>0 = none · push it up to make text pop on bright scenes</small></label>
+        <input type="range" id="shadow_strength" min="0" max="100" step="5">
+        <span class="val" id="shadow_strength_val">45%</span>
       </div>
     </div>
 
@@ -160,16 +161,16 @@
       <h2>Author</h2>
       <div class="ctl">
         <label for="name_on">Shorten long usernames</label>
-        <span class="switch"><input type="checkbox" id="name_on"><span class="slider-ui"></span></span>
+        <label class="switch"><input type="checkbox" id="name_on"><span class="slider-ui"></span></label>
         <input type="number" id="name_max" min="3" max="40" title="max characters">
       </div>
       <div class="ctl">
         <label for="show_platform">Platform logo <small>Twitch / YouTube icon per message</small></label>
-        <span class="switch"><input type="checkbox" id="show_platform"><span class="slider-ui"></span></span>
+        <label class="switch"><input type="checkbox" id="show_platform"><span class="slider-ui"></span></label>
       </div>
       <div class="ctl">
         <label for="show_time">Message time <small>HH:MM in front of each message</small></label>
-        <span class="switch"><input type="checkbox" id="show_time"><span class="slider-ui"></span></span>
+        <label class="switch"><input type="checkbox" id="show_time"><span class="slider-ui"></span></label>
       </div>
     </div>
 
@@ -177,13 +178,13 @@
       <h2>Background</h2>
       <div class="ctl">
         <label for="window_bg">Whole window background</label>
-        <span class="switch"><input type="checkbox" id="window_bg"><span class="slider-ui"></span></span>
+        <label class="switch"><input type="checkbox" id="window_bg"><span class="slider-ui"></span></label>
         <input type="range" id="window_bg_opacity" min="5" max="100" step="5">
         <span class="val" id="window_bg_opacity_val">40%</span>
       </div>
       <div class="ctl">
         <label for="msg_bg">Bubble behind each message</label>
-        <span class="switch"><input type="checkbox" id="msg_bg"><span class="slider-ui"></span></span>
+        <label class="switch"><input type="checkbox" id="msg_bg"><span class="slider-ui"></span></label>
         <input type="range" id="msg_bg_opacity" min="5" max="100" step="5">
         <span class="val" id="msg_bg_opacity_val">35%</span>
       </div>
@@ -220,7 +221,7 @@
     window_bg: false, window_bg_opacity: 40,
     msg_bg: false, msg_bg_opacity: 35,
     show_platform: true, show_time: false,
-    delay: 0, align: "bottom", shadow: true,
+    delay: 0, align: "bottom", shadow_strength: 45,
   };
   let previewReady = false;
 
@@ -235,7 +236,8 @@
   // ---------------------------------------------------------- form <-> data
   function fill(s) {
     $("size").value = s.size;         $("size-r").value = s.size;
-    $("shadow").checked = s.shadow;
+    // older saved styles had shadow as on/off - map to the strength slider
+    $("shadow_strength").value = s.shadow_strength ?? (s.shadow === false ? 0 : 45);
     $("fade").value = s.fade;         $("max").value = s.max;
     $("align").value = s.align;       $("delay").value = s.delay;
     $("name_on").checked = s.name_max > 0;
@@ -252,7 +254,7 @@
   function collect() {
     return {
       size: +$("size").value || 18,
-      shadow: $("shadow").checked,
+      shadow_strength: +$("shadow_strength").value,
       fade: Math.max(0, +$("fade").value || 0),
       max: Math.min(60, Math.max(1, +$("max").value || 12)),
       align: $("align").value,
@@ -268,10 +270,12 @@
   }
 
   function refreshVals() {
+    $("shadow_strength_val").textContent = $("shadow_strength").value + "%";
     $("window_bg_opacity_val").textContent = $("window_bg_opacity").value + "%";
     $("msg_bg_opacity_val").textContent = $("msg_bg_opacity").value + "%";
     $("name_max").style.opacity = $("name_on").checked ? 1 : .35;
-    $("name_max").disabled = !$("name_on").checked;
+    $("window_bg_opacity").style.opacity = $("window_bg").checked ? 1 : .35;
+    $("msg_bg_opacity").style.opacity = $("msg_bg").checked ? 1 : .35;
   }
 
   function pushPreview() {
@@ -290,6 +294,11 @@
   // keep slider and number input for font size in sync
   $("size-r").addEventListener("input", () => { $("size").value = $("size-r").value; pushPreview(); });
   $("size").addEventListener("input", () => { $("size-r").value = $("size").value; pushPreview(); });
+
+  // dragging an opacity slider (or typing a name length) turns its feature on
+  $("window_bg_opacity").addEventListener("input", () => { $("window_bg").checked = true; });
+  $("msg_bg_opacity").addEventListener("input", () => { $("msg_bg").checked = true; });
+  $("name_max").addEventListener("input", () => { $("name_on").checked = true; });
 
   document.querySelectorAll("input, select").forEach(el => {
     if (el.id === "size" || el.id === "size-r") return;

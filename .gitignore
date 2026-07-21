@@ -16,5 +16,6 @@ token.json
 /CHAT_CONNECT/chat_log.jsonl
 server.log
 yapper.log
+AUTOLAUNCH_ERROR.txt
 
 *.wav

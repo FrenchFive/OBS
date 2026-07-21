@@ -93,6 +93,38 @@ OBS_PORT=4455
 OBS_PASSWORD=                            # if you set one in OBS
 ```
 
+## Panic controls — skip & mute, from anywhere
+
+Two safety controls, built for "cut it NOW" moments (spam, something
+TOS-risky, harassment):
+
+- **SKIP** — instantly cuts the message being spoken, mid-word. The next
+  message continues normally.
+- **PAUSE / RESUME** — mutes the whole TTS: cuts the current message,
+  empties the queue, and drops everything new until you resume (no backlog
+  gets blurted afterwards). The dashboard's Duck card shows **PAUSED** while
+  muted.
+
+Four ways to trigger them, all equivalent:
+
+1. **Global hotkeys** (work whatever window is focused, even in-game):
+   - Skip: `Ctrl+Alt+Shift+F9`
+   - Pause/Resume: `Ctrl+Alt+Shift+F10`
+   Deliberately awkward combos so nothing else uses them; change or disable
+   them with `HOTKEY_SKIP` / `HOTKEY_PAUSE` in `.env` (the `keyboard`
+   package understands e.g. `ctrl+alt+shift+f13`).
+2. **Stream Deck — simplest**: add a **Hotkey** action sending the combo
+   above. Pro tip: set the hotkey in `.env` to an `f13`–`f24` key — those
+   don't exist on physical keyboards, so collisions are impossible and the
+   Stream Deck can still send them.
+3. **Stream Deck — macro/Open**: point a **System → Open** action at
+   `CHAT_YAPPER\skip.bat` or `CHAT_YAPPER\pause.bat`.
+4. **URLs / dashboard**: the Duck card has **⏭ Skip** and **🔇 Pause TTS**
+   buttons, and any URL-trigger tool can call
+   `http://127.0.0.1:2428/api/duck/skip` or `/api/duck/toggle` (GET or
+   POST). For a Stream Deck plugin that changes the key's color with state:
+   poll `GET /api/status` — `tools.yapper.state` is `"paused"` while muted.
+
 ## Choosing your ElevenLabs voices
 
 With `ELEVENLABS_API_KEY` set, open the CHAT CONNECT dashboard

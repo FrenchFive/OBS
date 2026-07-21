@@ -360,6 +360,14 @@ def make_app(hub: ChatHub, sources: Sources, stop_event: asyncio.Event) -> web.A
         hub.broadcast_command(body)
         return web.json_response({"ok": True})
 
+    async def api_duck_skip(_):
+        hub.broadcast_command({"tool": "yapper", "action": "skip"})
+        return web.json_response({"ok": True, "action": "skip"})
+
+    async def api_duck_toggle(_):
+        hub.broadcast_command({"tool": "yapper", "action": "toggle_pause"})
+        return web.json_response({"ok": True, "action": "toggle_pause"})
+
     async def api_clear(_):
         hub.clear()
         return web.json_response({"ok": True})
@@ -383,6 +391,11 @@ def make_app(hub: ChatHub, sources: Sources, stop_event: asyncio.Event) -> web.A
     app.router.add_post("/api/test", api_test_message)
     app.router.add_post("/api/tool-status", api_tool_status)
     app.router.add_post("/api/tool-command", api_tool_command)
+    # GET variants so URL-trigger tools (Stream Deck plugins, browsers) work too
+    app.router.add_get("/api/duck/skip", api_duck_skip)
+    app.router.add_post("/api/duck/skip", api_duck_skip)
+    app.router.add_get("/api/duck/toggle", api_duck_toggle)
+    app.router.add_post("/api/duck/toggle", api_duck_toggle)
     app.router.add_post("/api/clear", api_clear)
     app.router.add_post("/api/shutdown", api_shutdown)
     return app

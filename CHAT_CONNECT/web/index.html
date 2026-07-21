@@ -184,9 +184,14 @@
       <h2>🦆 CHAT YAPPER — Duck TTS</h2>
       <div class="status-line"><span class="dot" id="duck-dot"></span>
         <span class="status-text" id="duck-status"><b>not running</b> — start it with OBS (auto-launcher) or CHAT_YAPPER\run.bat</span></div>
+      <div class="row" style="margin-top:0">
+        <button id="duck-skip" title="Cut the message being spoken right now (hotkey: ctrl+alt+shift+f9)">⏭ Skip message</button>
+        <button id="duck-pause" title="Mute/unmute all TTS (hotkey: ctrl+alt+shift+f10)">🔇 Pause TTS</button>
+      </div>
       <div class="hint">The Duck reports here live. If something is wrong (missing OBS
         sources, voice/key problems, OBS unreachable) the exact reason shows up above —
-        and the Duck also opens a Windows pop-up for real errors, even in background mode.</div>
+        and the Duck also opens a Windows pop-up for real errors, even in background mode.
+        Skip/Pause also work as global hotkeys and from a Stream Deck — see CHAT_YAPPER/README.md.</div>
       <details class="voices" id="voices-box" style="display:none">
         <summary>🎤 ElevenLabs voices — <span id="voices-count">default set</span></summary>
         <div class="voices-inner">
@@ -340,11 +345,13 @@
       return { cls: "error", label: "not running",
                detail: `stopped reporting ${Math.round(age)}s ago (crashed or closed?) — check CHAT_YAPPER\\yapper.log` };
     const cls = { connected: "connected", ready: "waiting", "waiting-obs": "connecting",
-                  starting: "connecting", error: "error" }[t.state] || "";
+                  starting: "connecting", paused: "waiting",
+                  error: "error" }[t.state] || "";
     const label = { connected: "connected", ready: "waiting for chat hub",
                     "waiting-obs": "waiting for OBS", starting: "starting…",
+                    paused: "PAUSED — TTS muted",
                     error: "problem" }[t.state] || t.state;
-    return { cls, label, detail: t.detail || "" };
+    return { cls, label, detail: t.detail || "", state: t.state };
   }
 
   function renderDuck() {
@@ -352,6 +359,9 @@
     $("duck-dot").className = "dot " + d.cls;
     $("duck-status").innerHTML = `<b>${esc(d.label)}</b>` +
       (d.detail ? ` — ${esc(d.detail)}` : "");
+    const paused = d.state === "paused";
+    $("duck-pause").textContent = paused ? "🔊 Resume TTS" : "🔇 Pause TTS";
+    $("duck-pause").className = paused ? "btn-main" : "";
     renderVoices();
   }
 
@@ -433,6 +443,7 @@
     }
     const d = duckInfo(), hasDuck = !!tools["yapper"];
     if (!hasDuck) parts.push("○ Duck off");
+    else if (d.state === "paused") { parts.push("⏸ Duck muted"); running++; }
     else if (d.cls === "connected") { parts.push("✔ Duck"); running++; }
     else if (d.cls === "error") { parts.push("✖ Duck"); problems++; }
     else parts.push("… Duck");
@@ -493,6 +504,12 @@
   $("youtube-disconnect").onclick = () =>
     api("/api/disconnect", { platform: "youtube" })
       .then(() => toast("YouTube disconnected")).catch(e => toast("⚠ " + e.message));
+  $("duck-skip").onclick = () =>
+    api("/api/tool-command", { tool: "yapper", action: "skip" })
+      .then(() => toast("Skipped")).catch(e => toast("⚠ " + e.message));
+  $("duck-pause").onclick = () =>
+    api("/api/tool-command", { tool: "yapper", action: "toggle_pause" })
+      .then(() => {}).catch(e => toast("⚠ " + e.message));
   $("test-btn").onclick = () =>
     api("/api/test").then(() => {}).catch(e => toast("⚠ " + e.message));
   $("clear-btn").onclick = () =>

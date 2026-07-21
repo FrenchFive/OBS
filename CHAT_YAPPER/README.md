@@ -17,9 +17,15 @@ Twitch + YouTube ──► CHAT CONNECT (ws://127.0.0.1:2428/ws) ──► CHAT 
 - **OBS** with the WebSocket server enabled:
   *Tools → WebSocket Server Settings → Enable WebSocket server* (port `4455`).
   If you set a password there, put it in `.env` (see below).
-- *(Optional)* an **OpenAI API key** for the fancy random voices
-  (`gpt-4o-mini-tts`). Without a key the Duck falls back to the free offline
-  Windows voice (pyttsx3).
+- *(Optional)* an **ElevenLabs API key** and/or an **OpenAI API key** for AI
+  voices. No key (or a broken key/package)? The Duck automatically uses
+  **Windows' built-in voice** instead — it always has a voice. Full fallback
+  chain: **ElevenLabs → OpenAI → Windows voice → pyttsx3**. The engines are
+  tested at startup and the active voice is shown on the dashboard's Duck
+  card. ElevenLabs options in `.env`: `ELEVENLABS_API_KEY`, optional
+  `ELEVENLABS_VOICE_IDS` (comma-separated ids from your VoiceLab; empty =
+  rotate through built-in voices) and `ELEVENLABS_MODEL`
+  (default `eleven_flash_v2_5`).
 
 ## OBS scene setup (one time)
 
@@ -68,10 +74,39 @@ OBS_PORT=4455
 OBS_PASSWORD=                            # if you set one in OBS
 ```
 
+## Choosing your ElevenLabs voices
+
+With `ELEVENLABS_API_KEY` set, open the CHAT CONNECT dashboard
+(`http://localhost:2428`) while the Duck runs: the Duck card grows a
+**"🎤 ElevenLabs voices"** section listing every voice on your account —
+including any you add from the ElevenLabs Voice Library on their site.
+Press **▶** to hear a sample, tick the ones the Duck should rotate through,
+and hit **Save voices** — the Duck switches instantly and remembers the set
+(`voices.json`). No ticks = a default rotation. (`ELEVENLABS_VOICE_IDS` in
+`.env` still works as a manual override when nothing was picked.)
+
+## Knowing that it works (and why it doesn't)
+
+The Duck never fails silently:
+
+- It reports its **live status to the CHAT CONNECT dashboard** — the
+  🦆 CHAT YAPPER card shows `connected`, `waiting for OBS`, or the exact
+  problem ("OBS is missing a source named 'PYTHON_TTS'", "OpenAI TTS
+  failed", …). The banner at the top of the dashboard sums up Twitch +
+  YouTube + Duck in one line.
+- On startup it **checks everything**: Python packages, the OBS websocket,
+  the three OBS sources (by exact name), the silent wav (recreated if
+  missing) and which voice it can use.
+- Real problems open a **Windows pop-up**, even when running hidden in the
+  background. Everything is also logged (`yapper.log` in background mode).
+- If OBS sources are missing it keeps running and **rechecks every 30 s**,
+  so you can fix the scene without restarting anything.
+
 ## Behaviour details
 
-- Reads `message_clean` (emotes/emoji codes stripped) — the Duck doesn't try
-  to pronounce `french210Love`.
+- Reads `message_clean` (emote codes stripped) and additionally removes all
+  **emojis** — the Duck pronounces neither `french210Love` nor `🔥🔥🔥`.
+  Messages that are only emotes/emojis are skipped entirely (no duck pop-up).
 - Announces the author as `name · Twitch` / `name · YouTube` in the
   `PYTHON_AUTHOR` text source.
 - If chat goes faster than the Duck can talk, it keeps the **5 newest**

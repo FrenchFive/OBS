@@ -17,5 +17,7 @@ token.json
 server.log
 yapper.log
 AUTOLAUNCH_ERROR.txt
+/CHAT_YAPPER/tts_text.txt
+/CHAT_YAPPER/voices.json
 
 *.wav

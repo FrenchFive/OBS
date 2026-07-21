@@ -262,6 +262,7 @@ def make_app(hub: ChatHub, sources: Sources, stop_event: asyncio.Event) -> web.A
     async def api_status(_):
         return no_cache(web.json_response({
             "status": hub.status,
+            "tools": hub.tools,
             "history_size": len(hub.history),
             "endpoints": {
                 "websocket": "/ws", "sse": "/events",
@@ -332,6 +333,33 @@ def make_app(hub: ChatHub, sources: Sources, stop_event: asyncio.Event) -> web.A
         log.info("overlay style saved: %s", cfg)
         return web.json_response({"ok": True, "overlay": cfg})
 
+    async def api_tool_status(request):
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"ok": False, "error": "bad JSON"}, status=400)
+        tool = str(body.get("tool", "")).strip()[:40]
+        if not tool:
+            return web.json_response({"ok": False, "error": "tool name missing"},
+                                     status=400)
+        extra = body.get("extra")
+        if not isinstance(extra, dict) or len(json.dumps(extra)) > 200_000:
+            extra = None
+        hub.set_tool_status(tool, str(body.get("state", "unknown"))[:40],
+                            str(body.get("detail", ""))[:300], extra)
+        return web.json_response({"ok": True})
+
+    async def api_tool_command(request):
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"ok": False, "error": "bad JSON"}, status=400)
+        if not body.get("tool") or not body.get("action"):
+            return web.json_response({"ok": False, "error": "tool/action missing"},
+                                     status=400)
+        hub.broadcast_command(body)
+        return web.json_response({"ok": True})
+
     async def api_clear(_):
         hub.clear()
         return web.json_response({"ok": True})
@@ -353,6 +381,8 @@ def make_app(hub: ChatHub, sources: Sources, stop_event: asyncio.Event) -> web.A
     app.router.add_post("/api/connect", api_connect)
     app.router.add_post("/api/disconnect", api_disconnect)
     app.router.add_post("/api/test", api_test_message)
+    app.router.add_post("/api/tool-status", api_tool_status)
+    app.router.add_post("/api/tool-command", api_tool_command)
     app.router.add_post("/api/clear", api_clear)
     app.router.add_post("/api/shutdown", api_shutdown)
     return app

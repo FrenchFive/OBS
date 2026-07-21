@@ -27,7 +27,7 @@
     padding: var(--pad, 0);
     width: fit-content;
   }
-  .msg.shadow { text-shadow: 0 1px 2px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.55); }
+  .msg.shadow { text-shadow: var(--sh, 0 1px 2px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.55)); }
   .msg.gone { animation: fade-out .6s ease forwards; }
   @keyframes slide-in { from { opacity: 0; transform: translateY(0.6em); } }
   @keyframes fade-out { to { opacity: 0; } }
@@ -58,7 +58,7 @@
     window_bg: false, window_bg_opacity: 40,
     msg_bg: false, msg_bg_opacity: 35,
     show_platform: true, show_time: false,
-    delay: 0, align: "bottom", shadow: true,
+    delay: 0, align: "bottom", shadow_strength: 45,
   };
   let S = { ...DEFAULTS };
 
@@ -77,15 +77,40 @@
     time:    v => ({ show_time: flag(v) }),
     delay:   v => ({ delay: num(v) }),
     align:   v => ({ align: v === "top" ? "top" : "bottom" }),
-    shadow:  v => ({ shadow: flag(v) }),
+    // shadow=0 off, shadow=1 default, shadow=80 = strength 80
+    shadow:  v => {
+      if (v === "0" || v === "false") return { shadow_strength: 0 };
+      const n = parseFloat(v);
+      return { shadow_strength: (isNaN(n) || n === 1) ? 45 : Math.min(100, Math.max(0, n)) };
+    },
   };
   for (const [param, fn] of Object.entries(URL_MAP)) {
     if (q.has(param)) Object.assign(urlOverrides, fn(q.get(param)));
   }
 
+  // Build the drop shadow from an intensity value: 0 = none, 100 = thick
+  // outline-like shadow that stays readable on pure white scenes.
+  function shadowCSS(s) {
+    if (s <= 0) return "none";
+    const a = s / 100;
+    const layers = [
+      `0 1px 2px rgba(0,0,0,${Math.min(1, 1.1 * a).toFixed(2)})`,
+      `0 0 ${Math.round(4 + 4 * a)}px rgba(0,0,0,${(0.75 * a).toFixed(2)})`,
+    ];
+    if (s > 50) {
+      const b = (s - 50) / 50;
+      layers.push(`0 0 2px rgba(0,0,0,${b.toFixed(2)})`);
+      layers.push(`0 2px 8px rgba(0,0,0,${(0.9 * b).toFixed(2)})`);
+    }
+    return layers.join(", ");
+  }
+
   function applySettings(server) {
     if (server) S = { ...DEFAULTS, ...server, ...urlOverrides };
     else S = { ...S, ...urlOverrides };
+    // accept old saved styles where shadow was just on/off
+    if (S.shadow_strength === undefined) S.shadow_strength = S.shadow === false ? 0 : 45;
+    chat.style.setProperty("--sh", shadowCSS(S.shadow_strength));
     chat.style.setProperty("--size", S.size + "px");
     chat.style.setProperty("--bg-a", S.msg_bg ? (S.msg_bg_opacity / 100).toFixed(2) : "0");
     chat.style.setProperty("--pad", S.msg_bg ? "0.25em 0.5em" : "0");
@@ -93,9 +118,13 @@
       S.window_bg ? (S.window_bg_opacity / 100).toFixed(2) : "0");
     chat.classList.toggle("top", S.align === "top");
     trim();
-    // Re-arm the fade timer of every message already on screen so a new
-    // duration applies retroactively (e.g. forever -> 5s clears old messages).
-    [...chat.children].forEach(armFade);
+    // Update messages already on screen: shadow on/off and a re-armed fade
+    // timer so a new duration applies retroactively (forever -> 5s clears
+    // the old ones).
+    [...chat.children].forEach(el => {
+      el.classList.toggle("shadow", S.shadow_strength > 0);
+      armFade(el);
+    });
   }
   applySettings(null);
 
@@ -150,7 +179,7 @@
 
   function render(m, animate = true) {
     const el = document.createElement("div");
-    el.className = "msg" + (S.shadow ? " shadow" : "") + (m.amount ? " super" : "");
+    el.className = "msg" + (S.shadow_strength > 0 ? " shadow" : "") + (m.amount ? " super" : "");
     if (!animate) el.style.animation = "none";
     let author = m.author || "";
     if (S.name_max > 0 && author.length > S.name_max)

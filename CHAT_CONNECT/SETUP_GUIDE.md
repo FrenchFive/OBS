@@ -230,7 +230,7 @@ you play with the settings:
 | Setting | What it does |
 |---------|--------------|
 | **Font size** | text size in pixels |
-| **Text shadow** | keeps text readable on bright scenes |
+| **Text shadow** | intensity slider 0–100: `0` = none, higher = darker/thicker shadow so text stays readable on bright scenes |
 | **Message duration** | seconds before a message fades out (`0` = stay forever) |
 | **Max messages on screen** | how many messages stack up |
 | **New messages appear** | at the bottom (classic) or at the top |
@@ -269,7 +269,7 @@ options always win over the saved style, only for that source:
 | `time=1` | show message time |
 | `delay=5` | delay messages by 5 s |
 | `align=top` | newest message on top |
-| `shadow=0` | no text shadow |
+| `shadow=60` | text shadow intensity 0–100 (`0` = none) |
 
 </details>
 
@@ -375,12 +375,17 @@ From now on: open OBS → within a few seconds the dashboard
 (`http://localhost:2428`) is up, your channels auto-connect (they're
 remembered), the overlay browser source fills up, and the Duck starts
 quacking once your chat is live. Close OBS → everything shuts down again.
+Everything runs **fully hidden — no terminal windows appear**.
 
 Notes:
 
 - Both tools are **safe against double-starts** — if something is already
   running, the extra copy just exits. You can still use `run.bat` manually
   whenever you want.
+- If a tool can't start (usually: `install.bat` was never run in its
+  folder), a file called **`AUTOLAUNCH_ERROR.txt`** appears in that folder
+  telling you what to do. The **Script Log** button in the Scripts window
+  also shows what was launched.
 - In background mode the logs go to `CHAT_CONNECT/server.log` and
   `CHAT_YAPPER/yapper.log` (handy for [troubleshooting](#15-troubleshooting)).
 - To stop the tools manually while OBS stays open: dashboard **⏻ Stop
@@ -484,11 +489,20 @@ emotes show as text, the browser source may be blocked from the internet
 (images load from Twitch/YouTube's servers).
 
 **Auto-launch with OBS doesn't start anything**
-→ Check the Scripts window (Tools → Scripts): select `obs_autolaunch.lua` and
-look at the **Script Log** button output. The usual causes: `install.bat` was
-never run in one of the two folders, or the repo was moved after adding the
-script (remove it with **−** and re-add it from the new location). Then check
-`CHAT_CONNECT/server.log` and `CHAT_YAPPER/yapper.log`.
+→ Look for an **`AUTOLAUNCH_ERROR.txt`** file inside `CHAT_CONNECT` and
+`CHAT_YAPPER` — it appears when a tool couldn't start and says what to do
+(usually: run `install.bat` in that folder once). Also check the Scripts
+window (Tools → Scripts): select `obs_autolaunch.lua` and press **Script
+Log** to see what was launched. If you moved the repo after adding the
+script, remove it with **−** and re-add it from the new location. Runtime
+logs land in `CHAT_CONNECT/server.log` and `CHAT_YAPPER/yapper.log`.
+
+**Auto-launch opens terminal windows that stay open doing nothing**
+→ That was a bug in the first version of `obs_autolaunch.lua` (Windows keeps
+batch files started via `start` open forever). Update to the current version
+of the script, then in OBS Tools → Scripts remove it (−), re-add it (+), and
+restart OBS — it now launches everything through the Windows API with no
+windows at all.
 
 **OBS runs on a different PC (or you use a phone as a second screen)**
 → By default CHAT CONNECT only listens on the PC it runs on (safer). To open

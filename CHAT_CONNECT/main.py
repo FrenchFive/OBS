@@ -47,7 +47,7 @@ DEFAULT_OVERLAY = {
     "show_time": False,    # HH:MM in front of each message
     "delay": 0,            # seconds to hold messages back (sync with the Duck TTS)
     "align": "bottom",     # "bottom" | "top" (where new messages appear)
-    "shadow": True,        # text drop shadow
+    "shadow_strength": 45, # text drop shadow intensity 0-100 (0 = none)
 }
 
 DEFAULT_CONFIG = {
@@ -76,10 +76,15 @@ def clean_overlay_config(raw: dict, base: dict) -> dict:
                 out[key] = str(value)
         except (TypeError, ValueError):
             pass
+    # Styles saved before the shadow slider existed had a shadow on/off flag
+    if "shadow" in raw and "shadow_strength" not in raw:
+        out["shadow_strength"] = 45 if raw.get("shadow") else 0
+    out.pop("shadow", None)
     out["size"] = max(8, min(out["size"], 80))
     out["max"] = max(1, min(out["max"], 60))
     out["window_bg_opacity"] = min(out["window_bg_opacity"], 100)
     out["msg_bg_opacity"] = min(out["msg_bg_opacity"], 100)
+    out["shadow_strength"] = min(out["shadow_strength"], 100)
     if out["align"] not in ("bottom", "top"):
         out["align"] = "bottom"
     return out
@@ -95,7 +100,12 @@ def load_config() -> dict:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             saved = json.load(f)
         for key, value in saved.items():
-            if isinstance(value, dict) and isinstance(cfg.get(key), dict):
+            if key == "overlay" and isinstance(value, dict):
+                # keep the file's overlay as-is: clean_overlay_config merges it
+                # over the defaults itself and needs the raw keys to migrate
+                # old styles correctly
+                cfg[key] = value
+            elif isinstance(value, dict) and isinstance(cfg.get(key), dict):
                 cfg[key].update(value)
             else:
                 cfg[key] = value

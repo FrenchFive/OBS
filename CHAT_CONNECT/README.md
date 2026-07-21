@@ -127,7 +127,7 @@ Every frame is an envelope:
 | `GET /api/status` | – | current status + endpoint list |
 | `GET /api/messages` | `?since=<id>&limit=100` | history after id (max 300 kept) |
 | `GET /api/overlay` | – | saved overlay style |
-| `POST /api/overlay` | `{size, fade, max, name_max, window_bg, window_bg_opacity, msg_bg, msg_bg_opacity, show_platform, show_time, delay, align, shadow}` | save style + push to open overlays |
+| `POST /api/overlay` | `{size, fade, max, name_max, window_bg, window_bg_opacity, msg_bg, msg_bg_opacity, show_platform, show_time, delay, align, shadow_strength}` | save style + push to open overlays |
 | `POST /api/connect` | `{"platform":"twitch","channel":"name"}` | connect Twitch |
 | `POST /api/connect` | `{"platform":"youtube","target":"@handle or URL","api_key":""}` | connect YouTube (key optional) |
 | `POST /api/disconnect` | `{"platform":"twitch"\|"youtube"}` | disconnect + disable autoconnect |

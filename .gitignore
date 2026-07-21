@@ -21,3 +21,5 @@ AUTOLAUNCH_ERROR.txt
 /CHAT_YAPPER/voices.json
 
 *.wav
+CHAT_YAPPER/tts.wav
+*.wav

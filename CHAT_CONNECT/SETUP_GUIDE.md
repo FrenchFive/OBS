@@ -336,12 +336,14 @@ Full details live in `CHAT_YAPPER/README.md`, short version:
 1. In OBS: **Tools → WebSocket Server Settings** → tick **Enable WebSocket
    server**, port `4455`. If you set a password there, put it in
    `CHAT_YAPPER/.env` (copy `.env.example` to `.env`).
-2. Make sure your OBS scene has the duck sources (`PYTHON_TTS`,
-   `PYTHON_AUTHOR`, group `CHAT_YAPPING`) — see the Duck's README.
-3. One-time: double-click `CHAT_YAPPER/install.bat`.
-4. Start order: **CHAT CONNECT first**, then OBS, then `CHAT_YAPPER/run.bat`
+2. One-time: double-click `CHAT_YAPPER/install.bat`.
+3. Start order: **CHAT CONNECT first**, then OBS, then `CHAT_YAPPER/run.bat`
    (or set up [section 13](#13-start-everything-automatically-with-obs) and
    never think about start order again).
+4. The Duck **creates its OBS sources by itself** on first start (duck
+   image, author text, media source, all inside a hidden `CHAT_YAPPING`
+   scene added to your current scene) — just drag/resize the duck where you
+   want it. Anything you already made yourself is left untouched.
 
 The Duck now quacks Twitch AND YouTube messages, and says who wrote them and
 from which platform.

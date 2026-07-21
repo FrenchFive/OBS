@@ -116,10 +116,16 @@ DROPPED = 0            # messages skipped because the queue was full
 TTS_FILE = f"{script_path}/tts.wav"
 EMPTY_FILE = f"{script_path}/tts_empty.wav"
 
-# OBS source names (create these in OBS, see README.md):
+# OBS source names (auto-created if missing, see README.md):
 SRC_MEDIA = "PYTHON_TTS"       # media source that plays tts.wav
 SRC_AUTHOR = "PYTHON_AUTHOR"   # text source showing who is talking
 SRC_GROUP = "CHAT_YAPPING"     # group/scene item with the duck + text
+SRC_DUCK = "PYTHON_DUCK"       # the duck image (only used by auto-setup)
+DUCK_IMAGE = f"{script_path}/duck_image.png"
+
+# Auto-setup creates any MISSING OBS piece on start; existing sources are
+# never modified (your filters/plugins stay). Set to 1 to turn it off.
+AUTOSETUP = os.getenv("CHAT_YAPPER_NO_AUTOSETUP", "") != "1"
 
 TEXT_FILE = f"{script_path}/tts_text.txt"
 
@@ -257,6 +263,130 @@ def obs_getCurrentScene():
     return CLIENT.get_current_program_scene().scene_name
 
 
+MEDIA_RESTART = "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART"
+MEDIA_STOP = "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP"
+
+
+def prepare_obs_media():
+    """Configure the media source once so playback is fully under our control.
+
+    OBS media sources default to "restart playback when source becomes
+    active": showing the duck group would restart the audio that already
+    started when the file was set - the infamous stuttered first syllable
+    ("He- Hello"). With that behaviour off, the Duck alone decides when the
+    file plays (one explicit RESTART per message).
+    """
+    try:
+        CLIENT.set_input_settings(name=SRC_MEDIA, settings={
+            "restart_on_activate": False,
+            "looping": False,
+            "close_when_inactive": False,
+        }, overlay=True)
+        CLIENT.set_input_mute(SRC_MEDIA, True)
+        obs_setInput(SRC_MEDIA, "local_file", EMPTY_FILE)
+        print(f"-- OBS media source '{SRC_MEDIA}' configured (no auto-restart)")
+    except Exception as e:
+        print(f"!! could not configure '{SRC_MEDIA}' ({e}) - will retry when it exists")
+
+
+def _pick_text_kind():
+    kinds = CLIENT.get_input_kind_list(False).input_kinds
+    for kind in ("text_gdiplus_v3", "text_gdiplus_v2", "text_gdiplus",
+                 "text_ft2_source_v2", "text_ft2_source"):
+        if kind in kinds:
+            return kind
+    return next((k for k in kinds if k.startswith("text_")), None)
+
+
+def ensure_obs_setup():
+    """Create whatever duck piece is MISSING in OBS - and only that.
+
+    Existing sources are never modified or recreated, so filters/plugins the
+    user added (e.g. duck motion reacting to the audio) are untouched.
+    A scene named CHAT_YAPPING is used as the container: the websocket can't
+    create real groups, and a nested scene behaves exactly the same for the
+    show/hide the Duck does. An existing CHAT_YAPPING group keeps working.
+    """
+    if not AUTOSETUP:
+        return
+    created = []
+    try:
+        inputs = {i["inputName"] for i in CLIENT.get_input_list().inputs}
+        scenes = {s["sceneName"] for s in CLIENT.get_scene_list().scenes}
+        current = obs_getCurrentScene()
+        items = {i["sourceName"] for i in CLIENT.get_scene_item_list(current).scene_items}
+
+        canvas_h = 1080
+        try:
+            canvas_h = CLIENT.get_video_settings().base_height
+        except Exception:
+            pass
+
+        # 1. container: a scene named CHAT_YAPPING (unless the user already
+        #    has a group/input with that name - then we leave theirs alone)
+        have_container_input = SRC_GROUP in inputs
+        if not have_container_input and SRC_GROUP not in scenes:
+            CLIENT.create_scene(SRC_GROUP)
+            scenes.add(SRC_GROUP)
+            created.append(f"scene '{SRC_GROUP}'")
+        container = SRC_GROUP if (not have_container_input and SRC_GROUP in scenes) else None
+        target = container or current
+
+        # 2. the duck image
+        if SRC_DUCK not in inputs and container and os.path.exists(DUCK_IMAGE):
+            r = CLIENT.create_input(container, SRC_DUCK, "image_source",
+                                    {"file": DUCK_IMAGE}, True)
+            created.append(f"duck image '{SRC_DUCK}'")
+            try:
+                CLIENT.set_scene_item_transform(container, r.scene_item_id, {
+                    "positionX": 60, "positionY": canvas_h - 500,
+                    "boundsType": "OBS_BOUNDS_SCALE_INNER",
+                    "boundsWidth": 420, "boundsHeight": 420,
+                })
+            except Exception:
+                pass
+
+        # 3. the author text
+        if SRC_AUTHOR not in inputs:
+            kind = _pick_text_kind()
+            if kind:
+                r = CLIENT.create_input(target, SRC_AUTHOR, kind,
+                                        {"text": "", "font": {"face": "Arial",
+                                                              "size": 44,
+                                                              "style": "Bold"}}, True)
+                created.append(f"text '{SRC_AUTHOR}'")
+                try:
+                    CLIENT.set_scene_item_transform(target, r.scene_item_id, {
+                        "positionX": 70, "positionY": canvas_h - 560,
+                    })
+                except Exception:
+                    pass
+
+        # 4. the media source, pre-configured for stutter-free playback
+        if SRC_MEDIA not in inputs:
+            CLIENT.create_input(target, SRC_MEDIA, "ffmpeg_source", {
+                "local_file": EMPTY_FILE, "restart_on_activate": False,
+                "looping": False, "close_when_inactive": False,
+            }, True)
+            created.append(f"media source '{SRC_MEDIA}'")
+
+        # 5. drop the container into the current scene, hidden and ready.
+        #    Also runs later for scenes that don't have the duck yet.
+        if container and SRC_GROUP not in items and current != SRC_GROUP:
+            CLIENT.create_scene_item(current, SRC_GROUP, False)
+            created.append(f"'{SRC_GROUP}' added to scene '{current}'")
+    except Exception as e:
+        print(f"!! OBS auto-setup problem ({e}) - continuing with what exists")
+    if created:
+        print("-- OBS auto-setup created: " + ", ".join(created))
+        warn_once("auto-setup",
+                  "The Duck created its OBS sources for you:\n\n- "
+                  + "\n- ".join(created)
+                  + f"\n\nPosition/resize them as you like (inside the "
+                  f"'{SRC_GROUP}' scene). Existing sources were NOT touched.",
+                  show_popup=True)
+
+
 def check_obs_sources():
     """Verify the OBS setup the Duck needs. Returns a list of problems."""
     problems = []
@@ -295,8 +425,10 @@ async def source_recheck_loop():
     while True:
         await asyncio.sleep(30)
         if COMP["obs"] == "ok" and COMP["sources"]:
+            await loop.run_in_executor(None, ensure_obs_setup)
             await loop.run_in_executor(None, run_source_check)
             if not COMP["sources"]:
+                await loop.run_in_executor(None, prepare_obs_media)
                 print("-- OBS sources found - the Duck is fully operational")
 
 
@@ -579,20 +711,27 @@ def audio_duration():
 # ------------------------------------------------------------- the show
 
 def show_tts(message, author, voice_key=""):
-    """Generate the voice, pop the duck in OBS, play it, hide the duck."""
+    """Generate the voice, pop the duck in OBS, play it once, hide the duck.
+
+    Playback is driven explicitly (STOP after loading, one RESTART when the
+    duck is visible) so the audio starts exactly once - no stutter from the
+    file auto-playing on load and again when the group becomes visible.
+    """
     if not make_tts(message, voice_key):
         return
     current_scene = obs_getCurrentScene()
     duration = audio_duration()
 
-    obs_setInput(SRC_MEDIA, "local_file", TTS_FILE)
-    obs_activate(current_scene, SRC_MEDIA, False)
+    CLIENT.set_input_mute(SRC_MEDIA, True)
+    obs_setInput(SRC_MEDIA, "local_file", TTS_FILE)   # loads (muted)
+    CLIENT.trigger_media_input_action(SRC_MEDIA, MEDIA_STOP)  # park at the start
     obs_setInput(SRC_AUTHOR, "text", author)
 
-    obs_activate(current_scene, SRC_GROUP, True)
+    obs_activate(current_scene, SRC_GROUP, True)      # duck pops in (no auto-restart)
     CLIENT.set_input_mute(SRC_MEDIA, False)
+    CLIENT.trigger_media_input_action(SRC_MEDIA, MEDIA_RESTART)  # one clean start
 
-    time.sleep(duration + 0.2)
+    time.sleep(duration + 0.3)
 
     obs_activate(current_scene, SRC_GROUP, False)
     CLIENT.set_input_mute(SRC_MEDIA, True)
@@ -642,6 +781,7 @@ def speak_message(msg: dict):
         global CLIENT
         CLIENT = None
         obs_connect_blocking()
+        prepare_obs_media()
 
 
 # ------------------------------------------- CHAT CONNECT stream consumer
@@ -710,7 +850,9 @@ async def main():
     await loop.run_in_executor(None, fetch_voice_catalog)
     REPORT_NOW.set()
     await loop.run_in_executor(None, obs_connect_blocking)
+    await loop.run_in_executor(None, ensure_obs_setup)
     await loop.run_in_executor(None, run_source_check, True)
+    await loop.run_in_executor(None, prepare_obs_media)
     global QUEUE
     QUEUE = asyncio.Queue(maxsize=MAX_QUEUE)
     await asyncio.gather(listen_chat_connect(QUEUE), speaker_worker(QUEUE))

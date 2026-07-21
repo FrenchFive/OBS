@@ -16,15 +16,25 @@ import asyncio
 import json
 import os
 import random
+import socket
+import sys
 import time
 import wave
+
+script_path = os.path.dirname(os.path.abspath(__file__))
+
+# Under pythonw.exe (background mode) there is no console: print() would
+# crash, so route all output to yapper.log instead.
+if sys.stdout is None or sys.stderr is None:
+    _logfile = open(f"{script_path}/yapper.log", "a", buffering=1, encoding="utf-8")
+    sys.stdout = sys.stdout or _logfile
+    sys.stderr = sys.stderr or _logfile
 
 import aiohttp
 from dotenv import load_dotenv
 
 import obsws_python as obs
 
-script_path = os.path.dirname(os.path.abspath(__file__))
 load_dotenv()
 
 # ---------------------------------------------------------------- settings
@@ -38,6 +48,26 @@ OBS_PASSWORD = os.getenv("OBS_PASSWORD", "")
 
 MAX_QUEUE = 5          # messages waiting to be spoken; oldest dropped beyond this
 MAX_CHARS = 1000       # safety limit per message
+
+# Follow mode (set by autolaunch.bat / the OBS auto-launcher): once CHAT
+# CONNECT has been seen alive, exit when it goes away instead of retrying
+# forever - closing OBS then cleans up the Duck automatically.
+EXIT_WITH_SERVER = os.getenv("CHAT_YAPPER_EXIT_WITH_SERVER", "") == "1"
+
+# Single-instance lock: holding this port claims "the Duck is running".
+# A second copy (e.g. OBS autolaunch while it's already up) exits quietly.
+LOCK_PORT = int(os.getenv("CHAT_YAPPER_LOCK_PORT", "2430"))
+
+
+def acquire_single_instance_lock():
+    lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        lock.bind(("127.0.0.1", LOCK_PORT))
+        lock.listen(1)
+        return lock
+    except OSError:
+        print(f"-- CHAT YAPPER is already running (lock port {LOCK_PORT} busy) - bye")
+        sys.exit(0)
 
 TTS_FILE = f"{script_path}/tts.wav"
 EMPTY_FILE = f"{script_path}/tts_empty.wav"
@@ -190,12 +220,16 @@ async def speaker_worker(queue: asyncio.Queue):
 
 
 async def listen_chat_connect(queue: asyncio.Queue):
+    ever_connected = False
+    misses = 0
     while True:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(CHAT_CONNECT_WS, heartbeat=25) as ws:
                     print(f"-- connected to CHAT CONNECT ({CHAT_CONNECT_WS})")
                     print("-- the duck now reads Twitch + YouTube. Quack.")
+                    ever_connected = True
+                    misses = 0
                     async for frame in ws:
                         if frame.type != aiohttp.WSMsgType.TEXT:
                             continue
@@ -210,6 +244,10 @@ async def listen_chat_connect(queue: asyncio.Queue):
         except aiohttp.ClientError:
             print("-- CHAT CONNECT is not running - start CHAT_CONNECT/run.bat "
                   "(retrying in 5s)")
+        misses += 1
+        if EXIT_WITH_SERVER and ever_connected and misses >= 3:
+            print("-- CHAT CONNECT stopped and follow mode is on - bye")
+            os._exit(0)   # hard exit: a TTS worker thread may be mid-sleep
         await asyncio.sleep(5)
 
 
@@ -220,6 +258,7 @@ async def main():
 
 
 if __name__ == "__main__":
+    _instance_lock = acquire_single_instance_lock()
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

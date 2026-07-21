@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CHAT CONNECT — overlay editor</title>
+<style>
+  :root {
+    --bg: #000; --panel: #0d0d0d; --panel2: #161616; --line: #2a2a2a;
+    --text: #f2f2f2; --muted: #969696; --dim: #5c5c5c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); min-height: 100vh;
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 16px 22px;
+    border-bottom: 1px solid var(--line);
+  }
+  .logo { width: 38px; height: 38px; border-radius: 10px; display: grid;
+          place-items: center; background: #fff; color: #000; font-size: 19px; }
+  header h1 { font-size: 16px; letter-spacing: 2px; }
+  header .sub { color: var(--muted); font-size: 12px; margin-top: 1px; }
+  header a { color: var(--muted); font-size: 13px; text-decoration: none;
+             margin-left: auto; border: 1px solid var(--line); padding: 7px 14px;
+             border-radius: 8px; }
+  header a:hover { color: #fff; border-color: #fff; }
+
+  .layout { display: grid; grid-template-columns: 400px 1fr; min-height: calc(100vh - 71px); }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+  /* ------------------------------- controls ------------------------------- */
+  .controls { border-right: 1px solid var(--line); padding: 18px 22px 90px; }
+  .group { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+           margin-bottom: 14px; background: var(--panel); }
+  .group h2 { font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+              color: var(--dim); margin-bottom: 12px; }
+  .ctl { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
+  .ctl label { flex: 1; font-size: 13.5px; color: var(--text); }
+  .ctl small { display: block; color: var(--dim); font-size: 11.5px; margin-top: 2px; }
+  .ctl input[type=number] {
+    width: 74px; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--panel2); color: #fff; font-size: 13.5px; text-align: center; outline: none;
+  }
+  .ctl input[type=number]:focus { border-color: #fff; }
+  .ctl select {
+    padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--panel2); color: #fff; font-size: 13px; outline: none;
+  }
+  .ctl input[type=range] { width: 110px; accent-color: #fff; }
+  .val { width: 42px; text-align: right; color: var(--muted); font-size: 12.5px;
+         font-variant-numeric: tabular-nums; }
+
+  /* black & white toggle switch */
+  .switch { position: relative; width: 40px; height: 22px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider-ui {
+    position: absolute; inset: 0; background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 22px; cursor: pointer; transition: background .15s;
+  }
+  .slider-ui:before {
+    content: ""; position: absolute; width: 14px; height: 14px; border-radius: 50%;
+    left: 3px; top: 3px; background: var(--muted); transition: .15s;
+  }
+  .switch input:checked + .slider-ui { background: #fff; border-color: #fff; }
+  .switch input:checked + .slider-ui:before { transform: translateX(18px); background: #000; }
+
+  .actions { position: sticky; bottom: 0; margin: 4px -22px -90px; padding: 14px 22px;
+             background: linear-gradient(transparent, #000 30%); display: flex; gap: 10px; }
+  button {
+    border: 1px solid var(--line); border-radius: 9px; padding: 11px 18px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    background: var(--panel2); color: var(--muted); transition: .15s;
+  }
+  button:hover { color: #fff; border-color: #fff; }
+  .primary { background: #fff; color: #000; border-color: #fff; flex: 1; }
+  .primary:hover { background: #d9d9d9; color: #000; }
+
+  /* ------------------------------- preview ------------------------------- */
+  .preview-side { display: flex; flex-direction: column; }
+  .preview-bar { display: flex; align-items: center; gap: 10px; padding: 12px 20px;
+                 font-size: 12.5px; color: var(--muted); border-bottom: 1px solid var(--line); }
+  .preview-bar code { color: #fff; background: var(--panel2); border: 1px solid var(--line);
+                      border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+  .preview-bar button { padding: 5px 12px; font-size: 12px; }
+  .stage {
+    flex: 1; margin: 20px; border-radius: 14px; overflow: hidden; position: relative;
+    border: 1px solid var(--line); min-height: 460px;
+    background:
+      radial-gradient(1000px 500px at 70% 10%, #20242e 0%, transparent 60%),
+      radial-gradient(800px 500px at 20% 90%, #1a2030 0%, transparent 55%),
+      linear-gradient(160deg, #101318, #0a0c10 70%);
+  }
+  .stage .fake-game { position: absolute; inset: 0; opacity: .5;
+    background-image: linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+    background-size: 44px 44px; }
+  .stage .hint-tag { position: absolute; top: 12px; right: 14px; font-size: 11px;
+    letter-spacing: 2px; color: rgba(255,255,255,.35); text-transform: uppercase; }
+  .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
+  .toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    background: #fff; color: #000; padding: 10px 20px; border-radius: 10px;
+    font-size: 13px; font-weight: 600; opacity: 0; transition: opacity .25s;
+    pointer-events: none; z-index: 10;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">🎨</div>
+  <div>
+    <h1>OVERLAY EDITOR</h1>
+    <div class="sub">changes preview live — Save applies to OBS instantly &amp; is remembered</div>
+  </div>
+  <a href="/">← back to dashboard</a>
+</header>
+
+<div class="layout">
+  <div class="controls">
+
+    <div class="group">
+      <h2>Text</h2>
+      <div class="ctl">
+        <label for="size">Font size <small>pixels</small></label>
+        <input type="range" id="size-r" min="10" max="48" step="1">
+        <input type="number" id="size" min="8" max="80">
+      </div>
+      <div class="ctl">
+        <label for="shadow">Text shadow <small>readability on bright scenes</small></label>
+        <span class="switch"><input type="checkbox" id="shadow"><span class="slider-ui"></span></span>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Messages</h2>
+      <div class="ctl">
+        <label for="fade">Message duration <small>seconds on screen · 0 = stay forever</small></label>
+        <input type="number" id="fade" min="0" max="600">
+      </div>
+      <div class="ctl">
+        <label for="max">Max messages on screen</label>
+        <input type="number" id="max" min="1" max="60">
+      </div>
+      <div class="ctl">
+        <label for="align">New messages appear</label>
+        <select id="align"><option value="bottom">at the bottom</option>
+                           <option value="top">at the top</option></select>
+      </div>
+      <div class="ctl">
+        <label for="delay">Chat delay <small>seconds · sync the overlay with the Duck TTS voice</small></label>
+        <input type="number" id="delay" min="0" max="120">
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Author</h2>
+      <div class="ctl">
+        <label for="name_on">Shorten long usernames</label>
+        <span class="switch"><input type="checkbox" id="name_on"><span class="slider-ui"></span></span>
+        <input type="number" id="name_max" min="3" max="40" title="max characters">
+      </div>
+      <div class="ctl">
+        <label for="show_platform">Platform logo <small>Twitch / YouTube icon per message</small></label>
+        <span class="switch"><input type="checkbox" id="show_platform"><span class="slider-ui"></span></span>
+      </div>
+      <div class="ctl">
+        <label for="show_time">Message time <small>HH:MM in front of each message</small></label>
+        <span class="switch"><input type="checkbox" id="show_time"><span class="slider-ui"></span></span>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Background</h2>
+      <div class="ctl">
+        <label for="window_bg">Whole window background</label>
+        <span class="switch"><input type="checkbox" id="window_bg"><span class="slider-ui"></span></span>
+        <input type="range" id="window_bg_opacity" min="5" max="100" step="5">
+        <span class="val" id="window_bg_opacity_val">40%</span>
+      </div>
+      <div class="ctl">
+        <label for="msg_bg">Bubble behind each message</label>
+        <span class="switch"><input type="checkbox" id="msg_bg"><span class="slider-ui"></span></span>
+        <input type="range" id="msg_bg_opacity" min="5" max="100" step="5">
+        <span class="val" id="msg_bg_opacity_val">35%</span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="save">💾 Save &amp; apply</button>
+      <button id="reset">Reset</button>
+    </div>
+  </div>
+
+  <div class="preview-side">
+    <div class="preview-bar">
+      <span>OBS browser source URL:</span>
+      <code id="overlay-url">…</code>
+      <button id="copy">Copy</button>
+      <span style="margin-left:auto">sample messages — your saved style loads automatically, no URL options needed</span>
+    </div>
+    <div class="stage">
+      <div class="fake-game"></div>
+      <div class="hint-tag">Preview</div>
+      <iframe id="preview" src="/overlay?preview=1"></iframe>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const iframe = $("preview");
+  const DEFAULTS = {
+    size: 18, fade: 0, max: 12, name_max: 0,
+    window_bg: false, window_bg_opacity: 40,
+    msg_bg: false, msg_bg_opacity: 35,
+    show_platform: true, show_time: false,
+    delay: 0, align: "bottom", shadow: true,
+  };
+  let previewReady = false;
+
+  function toast(text) {
+    const t = $("toast");
+    t.textContent = text;
+    t.classList.add("show");
+    clearTimeout(t._h);
+    t._h = setTimeout(() => t.classList.remove("show"), 2400);
+  }
+
+  // ---------------------------------------------------------- form <-> data
+  function fill(s) {
+    $("size").value = s.size;         $("size-r").value = s.size;
+    $("shadow").checked = s.shadow;
+    $("fade").value = s.fade;         $("max").value = s.max;
+    $("align").value = s.align;       $("delay").value = s.delay;
+    $("name_on").checked = s.name_max > 0;
+    $("name_max").value = s.name_max > 0 ? s.name_max : 12;
+    $("show_platform").checked = s.show_platform;
+    $("show_time").checked = s.show_time;
+    $("window_bg").checked = s.window_bg;
+    $("window_bg_opacity").value = s.window_bg_opacity;
+    $("msg_bg").checked = s.msg_bg;
+    $("msg_bg_opacity").value = s.msg_bg_opacity;
+    refreshVals();
+  }
+
+  function collect() {
+    return {
+      size: +$("size").value || 18,
+      shadow: $("shadow").checked,
+      fade: Math.max(0, +$("fade").value || 0),
+      max: Math.min(60, Math.max(1, +$("max").value || 12)),
+      align: $("align").value,
+      delay: Math.max(0, +$("delay").value || 0),
+      name_max: $("name_on").checked ? Math.max(3, +$("name_max").value || 12) : 0,
+      show_platform: $("show_platform").checked,
+      show_time: $("show_time").checked,
+      window_bg: $("window_bg").checked,
+      window_bg_opacity: +$("window_bg_opacity").value,
+      msg_bg: $("msg_bg").checked,
+      msg_bg_opacity: +$("msg_bg_opacity").value,
+    };
+  }
+
+  function refreshVals() {
+    $("window_bg_opacity_val").textContent = $("window_bg_opacity").value + "%";
+    $("msg_bg_opacity_val").textContent = $("msg_bg_opacity").value + "%";
+    $("name_max").style.opacity = $("name_on").checked ? 1 : .35;
+    $("name_max").disabled = !$("name_on").checked;
+  }
+
+  function pushPreview() {
+    refreshVals();
+    if (previewReady)
+      iframe.contentWindow.postMessage({ type: "overlay-settings", settings: collect() }, "*");
+  }
+
+  window.addEventListener("message", ev => {
+    if (ev.data && ev.data.type === "overlay-preview-ready") {
+      previewReady = true;
+      pushPreview();
+    }
+  });
+
+  // keep slider and number input for font size in sync
+  $("size-r").addEventListener("input", () => { $("size").value = $("size-r").value; pushPreview(); });
+  $("size").addEventListener("input", () => { $("size-r").value = $("size").value; pushPreview(); });
+
+  document.querySelectorAll("input, select").forEach(el => {
+    if (el.id === "size" || el.id === "size-r") return;
+    el.addEventListener("input", pushPreview);
+    el.addEventListener("change", pushPreview);
+  });
+
+  // ------------------------------------------------------------ load / save
+  fetch("/api/overlay").then(r => r.json())
+    .then(d => { fill({ ...DEFAULTS, ...(d.overlay || {}) }); pushPreview(); })
+    .catch(() => { fill(DEFAULTS); toast("⚠ could not load saved style (server offline?)"); });
+
+  $("save").onclick = () =>
+    fetch("/api/overlay", { method: "POST", headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(collect()) })
+      .then(r => r.json())
+      .then(d => { if (!d.ok) throw 0;
+                   toast("Saved — every open overlay (incl. OBS) just updated"); })
+      .catch(() => toast("⚠ could not save (server offline?)"));
+
+  $("reset").onclick = () => { fill(DEFAULTS); pushPreview(); toast("Reset — hit Save to apply"); };
+
+  $("overlay-url").textContent = `http://${location.host}/overlay`;
+  $("copy").onclick = () => {
+    const url = $("overlay-url").textContent;
+    (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject())
+      .then(() => toast("Copied: " + url)).catch(() => prompt("Copy this URL:", url));
+  };
+})();
+</script>
+</body>
+</html>

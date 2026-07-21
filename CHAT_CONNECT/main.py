@@ -31,13 +31,58 @@ WEB_DIR = os.path.join(SCRIPT_DIR, "web")
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
 
 DEFAULT_PORT = 2428  # "CHAT" on a phone keypad
+
+# Overlay style, editable in the visual editor (http://localhost:2428/editor).
+# Saved here so OBS always shows the look you designed, no URL params needed.
+DEFAULT_OVERLAY = {
+    "size": 18,            # font size in px
+    "fade": 0,             # seconds a message stays visible (0 = forever)
+    "max": 12,             # messages kept on screen
+    "name_max": 0,         # truncate usernames to N chars (0 = full name)
+    "window_bg": False,    # dark panel behind the whole overlay
+    "window_bg_opacity": 40,
+    "msg_bg": False,       # dark bubble behind each message
+    "msg_bg_opacity": 35,
+    "show_platform": True, # Twitch / YouTube logo in front of each message
+    "show_time": False,    # HH:MM in front of each message
+    "delay": 0,            # seconds to hold messages back (sync with the Duck TTS)
+    "align": "bottom",     # "bottom" | "top" (where new messages appear)
+    "shadow": True,        # text drop shadow
+}
+
 DEFAULT_CONFIG = {
     "host": "127.0.0.1",
     "port": DEFAULT_PORT,
     "twitch": {"channel": "", "autoconnect": False},
     "youtube": {"target": "", "api_key": "", "autoconnect": False},
+    "overlay": dict(DEFAULT_OVERLAY),
     "log_chat_to_file": False,
 }
+
+
+def clean_overlay_config(raw: dict, base: dict) -> dict:
+    """Merge raw values over base, keeping only known keys with sane types."""
+    out = dict(base)
+    for key, default in DEFAULT_OVERLAY.items():
+        if key not in raw:
+            continue
+        value = raw[key]
+        try:
+            if isinstance(default, bool):
+                out[key] = bool(value)
+            elif isinstance(default, int):
+                out[key] = max(0, min(int(value), 600))
+            else:
+                out[key] = str(value)
+        except (TypeError, ValueError):
+            pass
+    out["size"] = max(8, min(out["size"], 80))
+    out["max"] = max(1, min(out["max"], 60))
+    out["window_bg_opacity"] = min(out["window_bg_opacity"], 100)
+    out["msg_bg_opacity"] = min(out["msg_bg_opacity"], 100)
+    if out["align"] not in ("bottom", "top"):
+        out["align"] = "bottom"
+    return out
 
 log = logging.getLogger("chatconnect")
 
@@ -143,6 +188,9 @@ def make_app(hub: ChatHub, sources: Sources, stop_event: asyncio.Event) -> web.A
 
     async def overlay(_):
         return await page("overlay.html")
+
+    async def editor(_):
+        return await page("editor.html")
 
     # ------------------------------------------------------------- streaming
 
@@ -259,6 +307,21 @@ def make_app(hub: ChatHub, sources: Sources, stop_event: asyncio.Event) -> web.A
         )
         return web.json_response({"ok": True})
 
+    async def api_overlay_get(_):
+        return no_cache(web.json_response({"ok": True, "overlay": hub.overlay_config}))
+
+    async def api_overlay_set(request):
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"ok": False, "error": "bad JSON"}, status=400)
+        cfg = clean_overlay_config(body, hub.overlay_config or DEFAULT_OVERLAY)
+        sources.cfg["overlay"] = cfg
+        save_config(sources.cfg)
+        hub.publish_overlay_config(cfg)   # live overlays restyle instantly
+        log.info("overlay style saved: %s", cfg)
+        return web.json_response({"ok": True, "overlay": cfg})
+
     async def api_shutdown(_):
         log.info("shutdown requested via API")
         asyncio.get_running_loop().call_later(0.2, stop_event.set)
@@ -266,10 +329,13 @@ def make_app(hub: ChatHub, sources: Sources, stop_event: asyncio.Event) -> web.A
 
     app.router.add_get("/", index)
     app.router.add_get("/overlay", overlay)
+    app.router.add_get("/editor", editor)
     app.router.add_get("/ws", websocket)
     app.router.add_get("/events", sse)
     app.router.add_get("/api/status", api_status)
     app.router.add_get("/api/messages", api_messages)
+    app.router.add_get("/api/overlay", api_overlay_get)
+    app.router.add_post("/api/overlay", api_overlay_set)
     app.router.add_post("/api/connect", api_connect)
     app.router.add_post("/api/disconnect", api_disconnect)
     app.router.add_post("/api/test", api_test_message)
@@ -299,6 +365,8 @@ async def async_main(args) -> int:
     cfg["host"], cfg["port"] = host, port
 
     hub = ChatHub()
+    hub.overlay_config = clean_overlay_config(cfg.get("overlay") or {}, DEFAULT_OVERLAY)
+    cfg["overlay"] = hub.overlay_config
     if cfg.get("log_chat_to_file"):
         hub.log_path = os.path.join(SCRIPT_DIR, "chat_log.jsonl")
 

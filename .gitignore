@@ -15,3 +15,4 @@ token.json
 /CHAT_CONNECT/config.json
 /CHAT_CONNECT/chat_log.jsonl
 server.log
+yapper.log

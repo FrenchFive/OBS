@@ -52,6 +52,7 @@ class ChatHub:
         self._subscribers: set[asyncio.Queue] = set()
         self._seen_native = deque(maxlen=400)   # (platform, native_id) dedupe guard
         self.log_path = None                    # set by main.py when logging enabled
+        self.overlay_config = {}                # set by main.py, shared via hello
         self.status = {
             p: {"platform": p, "state": "disconnected", "detail": "", "target": ""}
             for p in PLATFORMS
@@ -134,8 +135,14 @@ class ChatHub:
     def hello_payload(self) -> dict:
         return {
             "type": "hello",
-            "data": {"history": list(self.history), "status": self.status},
+            "data": {"history": list(self.history), "status": self.status,
+                     "overlay": self.overlay_config},
         }
+
+    def publish_overlay_config(self, cfg: dict):
+        """Push new overlay settings to every connected page instantly."""
+        self.overlay_config = cfg
+        self._broadcast({"type": "overlay", "data": dict(cfg)})
 
     def messages_since(self, since_id: int, limit: int = 100) -> list:
         out = [m for m in self.history if m["id"] > since_id]

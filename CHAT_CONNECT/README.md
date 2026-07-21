@@ -98,8 +98,12 @@ Every frame is an envelope:
 - **`overlay`** — the overlay style was saved in the editor; `data` is the
   full new settings object (overlays restyle themselves live on this).
 - **`tool`** — status heartbeat from an external tool (the Duck reports as
-  `yapper`): `{tool, state, detail, updated}`. The dashboard shows it and
-  treats >25s of silence as "not running".
+  `yapper`): `{tool, state, detail, updated, extra?}`. The dashboard shows it
+  and treats >25s of silence as "not running". `extra` carries tool data
+  (the Duck: its ElevenLabs voice catalog + selection for the voice picker).
+- **`command`** — relayed from `POST /api/tool-command` to whichever tool it
+  addresses (`data.tool`), e.g. the dashboard's voice picker sending
+  `{tool:"yapper", action:"set_voices", voices:[…]}`.
 - **`clear`** — the chat was reset (dashboard button / `POST /api/clear`);
   pages wipe their displayed messages. `data` is empty.
 
@@ -135,7 +139,8 @@ Every frame is an envelope:
 | `POST /api/connect` | `{"platform":"youtube","target":"@handle or URL","api_key":""}` | connect YouTube (key optional) |
 | `POST /api/disconnect` | `{"platform":"twitch"\|"youtube"}` | disconnect + disable autoconnect |
 | `POST /api/test` | `{"platform","author","message"}` (all optional) | inject a fake message |
-| `POST /api/tool-status` | `{"tool":"yapper","state":"connected","detail":"…"}` | report an external tool's health (shown on the dashboard; repeat every ~8 s as a heartbeat) |
+| `POST /api/tool-status` | `{"tool":"yapper","state":"connected","detail":"…","extra":{…}}` | report an external tool's health (shown on the dashboard; repeat every ~8 s as a heartbeat) |
+| `POST /api/tool-command` | `{"tool":"yapper","action":"set_voices","voices":[…]}` | send a command to a connected tool (relayed as a `command` event) |
 | `POST /api/clear` | – | reset the chat: wipe history + clear every open page |
 | `POST /api/shutdown` | – | stop the server |
 

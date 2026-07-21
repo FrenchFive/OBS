@@ -116,6 +116,10 @@ The Duck never fails silently:
 - On startup it **checks everything**: Python packages, the OBS websocket,
   the three OBS sources (by exact name), the silent wav (recreated if
   missing) and which voice it can use.
+- **It waits for OBS to finish loading first.** OBS answers "not ready"
+  (code 207) for a few seconds while it boots — the Duck patiently retries
+  instead of raising a false alarm, so auto-starting both together never
+  produces error pop-ups about missing sources.
 - Real problems open a **Windows pop-up**, even when running hidden in the
   background. Everything is also logged (`yapper.log` in background mode).
 - If OBS sources are missing it keeps running and **rechecks every 30 s**,

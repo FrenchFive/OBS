@@ -155,14 +155,18 @@ def acquire_single_instance_lock():
 
 # The Duck's health, combined into one status line that is printed, kept
 # up to date on the CHAT CONNECT dashboard, and easy to reason about.
-COMP = {"obs": "down", "sources": "", "chat": "down", "last_error": ""}
+COMP = {"obs": "down", "sources": "", "chat": "down", "last_error": "",
+        "pending": False}
 STATUS = {"state": "starting", "detail": ""}
 _warned = set()
 
 
 def refresh_status():
     voice = f"voice: {VOICE_LABEL}"
-    if COMP["obs"] != "ok":
+    if COMP["obs"] == "loading":
+        state, detail = "waiting-obs", ("OBS is starting up - waiting for it to "
+                                        "finish loading scenes...")
+    elif COMP["obs"] != "ok":
         state, detail = "waiting-obs", ("waiting for OBS - enable Tools > WebSocket "
                                         f"Server Settings (port {OBS_PORT})")
     elif COMP["sources"]:
@@ -231,8 +235,35 @@ async def status_reporter():
 CLIENT = None
 
 
+def _is_not_ready_error(e) -> bool:
+    """OBS's websocket answers before OBS finished loading: error code 207
+    ('OBS is not ready to perform the request'). Purely transient."""
+    text = str(e).lower()
+    return "not ready" in text or "code 207" in text
+
+
+def wait_obs_ready(timeout: float = 120):
+    """The websocket accepts connections seconds before scenes/sources exist.
+    Probe until real requests work so startup checks never cry wolf."""
+    deadline = time.time() + timeout
+    announced = False
+    while time.time() < deadline:
+        try:
+            CLIENT.get_current_program_scene()
+            return True
+        except Exception as e:
+            if not _is_not_ready_error(e):
+                return False   # a different problem - let the checks report it
+            if not announced:
+                announced = True
+                print("-- OBS is still loading - giving it time to finish...")
+            time.sleep(2)
+    return False
+
+
 def obs_connect_blocking():
-    """Keep trying until OBS is reachable (so start order doesn't matter)."""
+    """Keep trying until OBS is reachable AND done loading
+    (so start order and OBS boot time don't matter)."""
     global CLIENT
     COMP["obs"] = "down"
     refresh_status()
@@ -242,6 +273,9 @@ def obs_connect_blocking():
                                    password=OBS_PASSWORD, timeout=3)
         except Exception:
             time.sleep(5)
+    COMP["obs"] = "loading"
+    refresh_status()
+    wait_obs_ready()
     COMP["obs"] = "ok"
     refresh_status()
     print("-- OBS connected")
@@ -286,6 +320,10 @@ def prepare_obs_media():
         obs_setInput(SRC_MEDIA, "local_file", EMPTY_FILE)
         print(f"-- OBS media source '{SRC_MEDIA}' configured (no auto-restart)")
     except Exception as e:
+        if _is_not_ready_error(e):
+            COMP["pending"] = True
+            print("-- OBS is still loading - media setup postponed a few seconds")
+            return
         print(f"!! could not configure '{SRC_MEDIA}' ({e}) - will retry when it exists")
 
 
@@ -376,6 +414,10 @@ def ensure_obs_setup():
             CLIENT.create_scene_item(current, SRC_GROUP, False)
             created.append(f"'{SRC_GROUP}' added to scene '{current}'")
     except Exception as e:
+        if _is_not_ready_error(e):
+            COMP["pending"] = True
+            print("-- OBS is still loading - auto-setup postponed a few seconds")
+            return
         print(f"!! OBS auto-setup problem ({e}) - continuing with what exists")
     if created:
         print("-- OBS auto-setup created: " + ", ".join(created))
@@ -388,7 +430,10 @@ def ensure_obs_setup():
 
 
 def check_obs_sources():
-    """Verify the OBS setup the Duck needs. Returns a list of problems."""
+    """Verify the OBS setup the Duck needs.
+
+    Returns a list of problems, or None when OBS is still loading (transient
+    'not ready' answers must never be reported as missing sources)."""
     problems = []
     try:
         inputs = {i["inputName"] for i in CLIENT.get_input_list().inputs}
@@ -400,15 +445,22 @@ def check_obs_sources():
         if SRC_GROUP not in items:
             problems.append(f"group '{SRC_GROUP}' is not in the current scene '{scene}'")
     except Exception as e:
+        if _is_not_ready_error(e):
+            return None
         problems.append(f"could not inspect OBS sources ({e})")
     return problems
 
 
 def run_source_check(startup=False):
     problems = check_obs_sources()
+    if problems is None:
+        COMP["pending"] = True
+        print("-- OBS is still loading - source check postponed a few seconds")
+        return []
+    COMP["pending"] = False
     COMP["sources"] = " · ".join(problems)
     refresh_status()
-    if problems and startup:
+    if problems:
         warn_once("obs-sources",
                   "The Duck connected to OBS but can't display there yet:\n\n- "
                   + "\n- ".join(problems)
@@ -420,16 +472,26 @@ def run_source_check(startup=False):
 
 
 async def source_recheck_loop():
-    """While sources are missing, look again every 30s and recover silently."""
+    """Postponed checks (OBS still loading) retry within seconds; genuinely
+    missing sources are re-checked every 30s. Recovery is silent."""
     loop = asyncio.get_running_loop()
+    since_full = 0
     while True:
-        await asyncio.sleep(30)
-        if COMP["obs"] == "ok" and COMP["sources"]:
-            await loop.run_in_executor(None, ensure_obs_setup)
-            await loop.run_in_executor(None, run_source_check)
-            if not COMP["sources"]:
-                await loop.run_in_executor(None, prepare_obs_media)
-                print("-- OBS sources found - the Duck is fully operational")
+        await asyncio.sleep(5)
+        since_full += 5
+        if COMP["obs"] != "ok":
+            continue
+        pending = COMP.get("pending")
+        if not pending and not (COMP["sources"] and since_full >= 30):
+            continue
+        if not pending:
+            since_full = 0
+        had_issue = pending or bool(COMP["sources"])
+        await loop.run_in_executor(None, ensure_obs_setup)
+        await loop.run_in_executor(None, run_source_check)
+        if had_issue and not COMP.get("pending") and not COMP["sources"]:
+            await loop.run_in_executor(None, prepare_obs_media)
+            print("-- OBS sources found - the Duck is fully operational")
 
 
 def ensure_empty_wav():

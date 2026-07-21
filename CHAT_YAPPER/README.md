@@ -109,8 +109,14 @@ The Duck never fails silently:
   Messages that are only emotes/emojis are skipped entirely (no duck pop-up).
 - Announces the author as `name · Twitch` / `name · YouTube` in the
   `PYTHON_AUTHOR` text source.
-- If chat goes faster than the Duck can talk, it keeps the **5 newest**
-  messages and drops the oldest — it never lags minutes behind.
+- **Each chatter keeps their own voice**: the voice is picked from your
+  selected set by a stable hash of the user's platform id, so PixelWarrior
+  sounds like PixelWarrior every message, every stream (ElevenLabs and
+  OpenAI voices; changing the selected voice set reshuffles who gets what).
+- If chat goes faster than the Duck can talk, messages wait in a queue
+  (default **10**, `TTS_QUEUE_SIZE` in `.env`) and the oldest are dropped
+  beyond that — it never lags minutes behind. The dashboard's Duck card
+  shows how many are waiting and how many were skipped.
 - Old history is never read on startup/reconnect (only live messages).
 - The **Send test message** button on the CHAT CONNECT dashboard makes the
   Duck talk without being live — great for testing volume and layout.

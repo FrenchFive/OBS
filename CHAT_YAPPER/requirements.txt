@@ -3,3 +3,4 @@ obsws-python>=1.6
 python-dotenv>=1.0
 openai>=1.23
 pyttsx3>=2.90
+keyboard>=0.13

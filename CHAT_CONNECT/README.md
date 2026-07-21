@@ -145,7 +145,9 @@ Every frame is an envelope:
 | `POST /api/disconnect` | `{"platform":"twitch"\|"youtube"}` | disconnect + disable autoconnect |
 | `POST /api/test` | `{"platform","author","message"}` (all optional) | inject a fake message |
 | `POST /api/tool-status` | `{"tool":"yapper","state":"connected","detail":"…","extra":{…}}` | report an external tool's health (shown on the dashboard; repeat every ~8 s as a heartbeat) |
-| `POST /api/tool-command` | `{"tool":"yapper","action":"set_voices","voices":[…]}` | send a command to a connected tool (relayed as a `command` event) |
+| `POST /api/tool-command` | `{"tool":"yapper","action":"set_voices","voices":[…]}` | send a command to a connected tool (relayed as a `command` event); Duck actions: `skip`, `pause`, `resume`, `toggle_pause`, `set_voices` |
+| `GET/POST /api/duck/skip` | – | cut the message the Duck is speaking (Stream Deck friendly) |
+| `GET/POST /api/duck/toggle` | – | mute/unmute the Duck's TTS (Stream Deck friendly) |
 | `POST /api/clear` | – | reset the chat: wipe history + clear every open page |
 | `POST /api/shutdown` | – | stop the server |
 

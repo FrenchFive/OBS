@@ -135,6 +135,13 @@ TEXT_FILE = f"{script_path}/tts_text.txt"
 EXIT_WITH_SERVER = (os.getenv("CHAT_YAPPER_EXIT_WITH_SERVER", "") == "1"
                     or "--exit-with-server" in sys.argv)
 
+# Panic controls: global hotkeys that work whatever window is focused.
+# Deliberately awkward combos so nothing else uses them; both configurable
+# in .env (empty value = hotkey off). A Stream Deck "Hotkey" action can send
+# these - or even F13-F24 keys that no physical keyboard has.
+HOTKEY_SKIP = os.getenv("HOTKEY_SKIP", "ctrl+alt+shift+f9").strip()
+HOTKEY_PAUSE = os.getenv("HOTKEY_PAUSE", "ctrl+alt+shift+f10").strip()
+
 # Single-instance lock: holding this port claims "the Duck is running".
 # A second copy (e.g. OBS autolaunch while it's already up) exits quietly.
 LOCK_PORT = int(os.getenv("CHAT_YAPPER_LOCK_PORT", "2430"))
@@ -155,14 +162,18 @@ def acquire_single_instance_lock():
 
 # The Duck's health, combined into one status line that is printed, kept
 # up to date on the CHAT CONNECT dashboard, and easy to reason about.
-COMP = {"obs": "down", "sources": "", "chat": "down", "last_error": ""}
+COMP = {"obs": "down", "sources": "", "chat": "down", "last_error": "",
+        "pending": False, "paused": False}
 STATUS = {"state": "starting", "detail": ""}
 _warned = set()
 
 
 def refresh_status():
     voice = f"voice: {VOICE_LABEL}"
-    if COMP["obs"] != "ok":
+    if COMP["obs"] == "loading":
+        state, detail = "waiting-obs", ("OBS is starting up - waiting for it to "
+                                        "finish loading scenes...")
+    elif COMP["obs"] != "ok":
         state, detail = "waiting-obs", ("waiting for OBS - enable Tools > WebSocket "
                                         f"Server Settings (port {OBS_PORT})")
     elif COMP["sources"]:
@@ -170,6 +181,10 @@ def refresh_status():
     elif VOICE_LABEL == "no working voice":
         state, detail = "error", ("no TTS voice works - re-run install.bat "
                                   "(see yapper.log for details)")
+    elif COMP["paused"]:
+        state, detail = "paused", ("TTS muted by you - "
+                                   + (HOTKEY_PAUSE or "the dashboard button")
+                                   + " resumes it")
     elif COMP["chat"] != "ok":
         state, detail = "ready", f"OBS ok - waiting for CHAT CONNECT · {voice}"
     else:
@@ -231,8 +246,35 @@ async def status_reporter():
 CLIENT = None
 
 
+def _is_not_ready_error(e) -> bool:
+    """OBS's websocket answers before OBS finished loading: error code 207
+    ('OBS is not ready to perform the request'). Purely transient."""
+    text = str(e).lower()
+    return "not ready" in text or "code 207" in text
+
+
+def wait_obs_ready(timeout: float = 120):
+    """The websocket accepts connections seconds before scenes/sources exist.
+    Probe until real requests work so startup checks never cry wolf."""
+    deadline = time.time() + timeout
+    announced = False
+    while time.time() < deadline:
+        try:
+            CLIENT.get_current_program_scene()
+            return True
+        except Exception as e:
+            if not _is_not_ready_error(e):
+                return False   # a different problem - let the checks report it
+            if not announced:
+                announced = True
+                print("-- OBS is still loading - giving it time to finish...")
+            time.sleep(2)
+    return False
+
+
 def obs_connect_blocking():
-    """Keep trying until OBS is reachable (so start order doesn't matter)."""
+    """Keep trying until OBS is reachable AND done loading
+    (so start order and OBS boot time don't matter)."""
     global CLIENT
     COMP["obs"] = "down"
     refresh_status()
@@ -242,6 +284,9 @@ def obs_connect_blocking():
                                    password=OBS_PASSWORD, timeout=3)
         except Exception:
             time.sleep(5)
+    COMP["obs"] = "loading"
+    refresh_status()
+    wait_obs_ready()
     COMP["obs"] = "ok"
     refresh_status()
     print("-- OBS connected")
@@ -286,6 +331,10 @@ def prepare_obs_media():
         obs_setInput(SRC_MEDIA, "local_file", EMPTY_FILE)
         print(f"-- OBS media source '{SRC_MEDIA}' configured (no auto-restart)")
     except Exception as e:
+        if _is_not_ready_error(e):
+            COMP["pending"] = True
+            print("-- OBS is still loading - media setup postponed a few seconds")
+            return
         print(f"!! could not configure '{SRC_MEDIA}' ({e}) - will retry when it exists")
 
 
@@ -376,6 +425,10 @@ def ensure_obs_setup():
             CLIENT.create_scene_item(current, SRC_GROUP, False)
             created.append(f"'{SRC_GROUP}' added to scene '{current}'")
     except Exception as e:
+        if _is_not_ready_error(e):
+            COMP["pending"] = True
+            print("-- OBS is still loading - auto-setup postponed a few seconds")
+            return
         print(f"!! OBS auto-setup problem ({e}) - continuing with what exists")
     if created:
         print("-- OBS auto-setup created: " + ", ".join(created))
@@ -388,7 +441,10 @@ def ensure_obs_setup():
 
 
 def check_obs_sources():
-    """Verify the OBS setup the Duck needs. Returns a list of problems."""
+    """Verify the OBS setup the Duck needs.
+
+    Returns a list of problems, or None when OBS is still loading (transient
+    'not ready' answers must never be reported as missing sources)."""
     problems = []
     try:
         inputs = {i["inputName"] for i in CLIENT.get_input_list().inputs}
@@ -400,15 +456,22 @@ def check_obs_sources():
         if SRC_GROUP not in items:
             problems.append(f"group '{SRC_GROUP}' is not in the current scene '{scene}'")
     except Exception as e:
+        if _is_not_ready_error(e):
+            return None
         problems.append(f"could not inspect OBS sources ({e})")
     return problems
 
 
 def run_source_check(startup=False):
     problems = check_obs_sources()
+    if problems is None:
+        COMP["pending"] = True
+        print("-- OBS is still loading - source check postponed a few seconds")
+        return []
+    COMP["pending"] = False
     COMP["sources"] = " · ".join(problems)
     refresh_status()
-    if problems and startup:
+    if problems:
         warn_once("obs-sources",
                   "The Duck connected to OBS but can't display there yet:\n\n- "
                   + "\n- ".join(problems)
@@ -420,16 +483,26 @@ def run_source_check(startup=False):
 
 
 async def source_recheck_loop():
-    """While sources are missing, look again every 30s and recover silently."""
+    """Postponed checks (OBS still loading) retry within seconds; genuinely
+    missing sources are re-checked every 30s. Recovery is silent."""
     loop = asyncio.get_running_loop()
+    since_full = 0
     while True:
-        await asyncio.sleep(30)
-        if COMP["obs"] == "ok" and COMP["sources"]:
-            await loop.run_in_executor(None, ensure_obs_setup)
-            await loop.run_in_executor(None, run_source_check)
-            if not COMP["sources"]:
-                await loop.run_in_executor(None, prepare_obs_media)
-                print("-- OBS sources found - the Duck is fully operational")
+        await asyncio.sleep(5)
+        since_full += 5
+        if COMP["obs"] != "ok":
+            continue
+        pending = COMP.get("pending")
+        if not pending and not (COMP["sources"] and since_full >= 30):
+            continue
+        if not pending:
+            since_full = 0
+        had_issue = pending or bool(COMP["sources"])
+        await loop.run_in_executor(None, ensure_obs_setup)
+        await loop.run_in_executor(None, run_source_check)
+        if had_issue and not COMP.get("pending") and not COMP["sources"]:
+            await loop.run_in_executor(None, prepare_obs_media)
+            print("-- OBS sources found - the Duck is fully operational")
 
 
 def ensure_empty_wav():
@@ -615,8 +688,80 @@ def fetch_voice_catalog():
         print(f"!! could not fetch the ElevenLabs voice list ({e})")
 
 
+# ------------------------------------------------ panic controls (skip/pause)
+
+SKIP_EVENT = threading.Event()   # cuts the message currently being spoken
+LOOP = None                      # main asyncio loop, for hotkey threads
+
+
+def skip_current():
+    """Instantly cut whatever the Duck is saying (thread-safe)."""
+    print("-- SKIP - cutting the current message")
+    SKIP_EVENT.set()
+
+
+def set_paused(value: bool):
+    """Mute/unmute the whole TTS. Pausing also cuts the current message and
+    empties the queue - nothing said later, no backlog blurted on resume."""
+    if COMP["paused"] == value:
+        return
+    COMP["paused"] = value
+    if value:
+        SKIP_EVENT.set()
+        if QUEUE is not None:
+            while not QUEUE.empty():
+                try:
+                    QUEUE.get_nowait()
+                except Exception:
+                    break
+    print("-- TTS " + ("PAUSED - the Duck is muted" if value else "resumed - the Duck speaks again"))
+    refresh_status()
+    if REPORT_NOW:
+        REPORT_NOW.set()
+
+
+def toggle_pause():
+    set_paused(not COMP["paused"])
+
+
+def register_hotkeys():
+    """System-wide hotkeys - they work whatever window has focus."""
+    if not (HOTKEY_SKIP or HOTKEY_PAUSE):
+        return
+    try:
+        import keyboard
+    except Exception as e:
+        warn_once("hotkeys",
+                  f"global hotkeys unavailable ({e}) - re-run install.bat. "
+                  "The dashboard buttons and Stream Deck URLs still work.")
+        return
+    try:
+        # keyboard runs callbacks on its own thread: only touch thread-safe
+        # things directly, marshal the rest onto the asyncio loop.
+        if HOTKEY_SKIP:
+            keyboard.add_hotkey(HOTKEY_SKIP, skip_current)
+        if HOTKEY_PAUSE:
+            keyboard.add_hotkey(
+                HOTKEY_PAUSE,
+                lambda: LOOP and LOOP.call_soon_threadsafe(toggle_pause))
+        print(f"-- global hotkeys ready: SKIP = {HOTKEY_SKIP or '(off)'} · "
+              f"PAUSE/RESUME = {HOTKEY_PAUSE or '(off)'}")
+    except Exception as e:
+        warn_once("hotkeys", f"could not register hotkeys ({e}) - "
+                  "dashboard buttons and Stream Deck URLs still work.")
+
+
 def handle_command(cmd: dict):
     """Commands sent from the dashboard through CHAT CONNECT."""
+    action = cmd.get("action")
+    if action == "skip":
+        skip_current()
+        return
+    if action in ("pause", "resume", "toggle_pause"):
+        set_paused(True if action == "pause"
+                   else False if action == "resume"
+                   else not COMP["paused"])
+        return
     if cmd.get("action") == "set_voices":
         ids = [v for v in cmd.get("voices", []) if isinstance(v, str)][:40]
         known = {c["id"] for c in VOICE_CATALOG}
@@ -731,7 +876,9 @@ def show_tts(message, author, voice_key=""):
     CLIENT.set_input_mute(SRC_MEDIA, False)
     CLIENT.trigger_media_input_action(SRC_MEDIA, MEDIA_RESTART)  # one clean start
 
-    time.sleep(duration + 0.3)
+    # Interruptible wait: SKIP or PAUSE cuts the audio instantly mid-sentence
+    if SKIP_EVENT.wait(duration + 0.3):
+        CLIENT.trigger_media_input_action(SRC_MEDIA, MEDIA_STOP)
 
     obs_activate(current_scene, SRC_GROUP, False)
     CLIENT.set_input_mute(SRC_MEDIA, True)
@@ -758,6 +905,7 @@ def strip_emoji(text: str) -> str:
 
 
 def speak_message(msg: dict):
+    SKIP_EVENT.clear()   # a skip pressed from here on cuts THIS message
     # message_clean = text with emote codes stripped; emojis go too -> pure
     # speakable text for the TTS
     text = (msg.get("message_clean") or msg.get("message") or "")
@@ -790,6 +938,8 @@ async def speaker_worker(queue: asyncio.Queue):
     loop = asyncio.get_running_loop()
     while True:
         msg = await queue.get()
+        if COMP["paused"]:
+            continue
         await loop.run_in_executor(None, speak_message, msg)
 
 
@@ -819,6 +969,8 @@ async def listen_chat_connect(queue: asyncio.Queue):
                         # "hello" carries old history - never read that aloud.
                         if event.get("type") != "chat":
                             continue
+                        if COMP["paused"]:        # muted: drop, don't stockpile
+                            continue
                         if queue.full():          # chat spam: drop the oldest
                             queue.get_nowait()
                             DROPPED += 1
@@ -837,8 +989,10 @@ async def listen_chat_connect(queue: asyncio.Queue):
 
 
 async def main():
-    global REPORT_NOW
+    global REPORT_NOW, LOOP
+    LOOP = asyncio.get_running_loop()
     REPORT_NOW = asyncio.Event()
+    register_hotkeys()
     ensure_empty_wav()
     load_saved_voices()
     build_voice_chain()

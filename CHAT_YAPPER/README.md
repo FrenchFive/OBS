@@ -27,19 +27,38 @@ Twitch + YouTube ──► CHAT CONNECT (ws://127.0.0.1:2428/ws) ──► CHAT 
   rotate through built-in voices) and `ELEVENLABS_MODEL`
   (default `eleven_flash_v2_5`).
 
-## OBS scene setup (one time)
+## OBS setup — automatic
 
-The script drives three things in your current scene — create them with
-exactly these names:
+**You don't have to create anything in OBS anymore.** On start the Duck
+checks what exists and **creates whatever is missing**:
+
+- a scene called `CHAT_YAPPING` (works exactly like a group for the Duck),
+  added hidden to your current scene
+- inside it: the duck image (`PYTHON_DUCK`, using `duck_image.png`), the
+  author text (`PYTHON_AUTHOR`) and the pre-configured media source
+  (`PYTHON_TTS`)
+
+Then just position/resize the duck once, the way you like. If you later
+switch to a scene that doesn't contain `CHAT_YAPPING`, the Duck adds it
+there too (hidden) within ~30 seconds.
+
+Two important guarantees:
+
+- **Existing sources are NEVER modified or recreated.** If you already have
+  any of these (with filters on them — audio-reactive duck motion plugins,
+  etc.), the Duck only fills the gaps and leaves yours exactly as they are.
+- Set `CHAT_YAPPER_NO_AUTOSETUP=1` in `.env` to turn auto-creation off
+  entirely and manage OBS yourself.
+
+For reference, the names the script drives (a `CHAT_YAPPING` **group** you
+made yourself works just as well as the auto-created scene):
 
 | Name | Type | Purpose |
 |------|------|---------|
-| `CHAT_YAPPING` | **Group** (right-click sources → Group) | everything that should pop in/out: put the duck image + author text inside |
-| `PYTHON_AUTHOR` | **Text (GDI+)** source, inside the group | shows who is talking (e.g. "french_five · Twitch") |
-| `PYTHON_TTS` | **Media Source**, can be outside the group | plays `tts.wav`; leave the file empty (the script sets it and auto-configures the source — playback is driven by the Duck, so no stuttered first syllable) |
-
-`duck_image.png` in this folder is a ready-to-use duck. The script shows the
-`CHAT_YAPPING` group while the voice plays, then hides it again.
+| `CHAT_YAPPING` | scene or group in your current scene | pops in/out while the Duck talks |
+| `PYTHON_AUTHOR` | text source | shows who is talking (e.g. "french_five · Twitch") |
+| `PYTHON_TTS` | media source | plays `tts.wav`; the Duck sets the file and drives playback (no stutter) |
+| `PYTHON_DUCK` | image source | the duck itself (only created by auto-setup, never required) |
 
 ## Install & run
 

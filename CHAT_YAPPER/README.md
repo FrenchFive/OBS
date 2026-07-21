@@ -36,7 +36,7 @@ exactly these names:
 |------|------|---------|
 | `CHAT_YAPPING` | **Group** (right-click sources → Group) | everything that should pop in/out: put the duck image + author text inside |
 | `PYTHON_AUTHOR` | **Text (GDI+)** source, inside the group | shows who is talking (e.g. "french_five · Twitch") |
-| `PYTHON_TTS` | **Media Source**, can be outside the group | plays `tts.wav`; leave the file empty (the script sets it) |
+| `PYTHON_TTS` | **Media Source**, can be outside the group | plays `tts.wav`; leave the file empty (the script sets it and auto-configures the source — playback is driven by the Duck, so no stuttered first syllable) |
 
 `duck_image.png` in this folder is a ready-to-use duck. The script shows the
 `CHAT_YAPPING` group while the voice plays, then hides it again.

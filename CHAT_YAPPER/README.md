@@ -111,8 +111,13 @@ Four ways to trigger them, all equivalent:
    - Skip: `Ctrl+Alt+Shift+F9`
    - Pause/Resume: `Ctrl+Alt+Shift+F10`
    Deliberately awkward combos so nothing else uses them; change or disable
-   them with `HOTKEY_SKIP` / `HOTKEY_PAUSE` in `.env` (the `keyboard`
-   package understands e.g. `ctrl+alt+shift+f13`).
+   them with `HOTKEY_SKIP` / `HOTKEY_PAUSE` in `.env` (single keys like
+   `f13` work, combos like `ctrl+alt+shift+f13` too). Keys are matched **by
+   name**, so F13–F24 sent by a Stream Deck are caught reliably. Whether
+   the hotkeys are armed is shown on the dashboard's Duck card and in the
+   broadcaster view ("⌨ global hotkeys — …" / "⚠ hotkeys OFF"), and a
+   pop-up warns you at startup if they couldn't be enabled (usually:
+   re-run `install.bat` once for the `keyboard` package).
 2. **Stream Deck — simplest**: add a **Hotkey** action sending the combo
    above. Pro tip: set the hotkey in `.env` to an `f13`–`f24` key — those
    don't exist on physical keyboards, so collisions are impossible and the

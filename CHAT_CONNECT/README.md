@@ -38,10 +38,11 @@ messages.
   auto-reconnect everywhere, config persisted in `config.json`.
 - **OBS auto-launch**: add `obs_autolaunch.lua` in OBS (Tools → Scripts) and
   opening OBS starts CHAT CONNECT + the Duck; closing OBS stops them.
-- **Broadcaster view** at `/broadcaster`: a private reading page — big
-  adjustable text, messages never expire, scroll-safe (reading an old
-  message? new ones never move your view — a "↓ N new" button appears),
-  and a Clear button that resets the chat everywhere.
+- **Broadcaster view** at `/broadcaster`: a private reading page (great as
+  an OBS dock) — big adjustable text, messages never expire, scroll-safe
+  (reading an old message? new ones never move your view — a "↓ N new"
+  button appears), live **Duck status + queue** on top, **⏭ Skip / 🔇
+  Pause** buttons, and a Clear button that resets the chat everywhere.
 
 ## Quick start
 

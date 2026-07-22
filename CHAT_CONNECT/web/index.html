@@ -185,9 +185,10 @@
       <div class="status-line"><span class="dot" id="duck-dot"></span>
         <span class="status-text" id="duck-status"><b>not running</b> — start it with OBS (auto-launcher) or CHAT_YAPPER\run.bat</span></div>
       <div class="row" style="margin-top:0">
-        <button id="duck-skip" title="Cut the message being spoken right now (hotkey: ctrl+alt+shift+f9)">⏭ Skip message</button>
-        <button id="duck-pause" title="Mute/unmute all TTS (hotkey: ctrl+alt+shift+f10)">🔇 Pause TTS</button>
+        <button id="duck-skip" title="Cut the message being spoken right now">⏭ Skip message</button>
+        <button id="duck-pause" title="Mute/unmute all TTS">🔇 Pause TTS</button>
       </div>
+      <div class="hint" id="duck-hotkeys" style="display:none"></div>
       <div class="hint">The Duck reports here live. If something is wrong (missing OBS
         sources, voice/key problems, OBS unreachable) the exact reason shows up above —
         and the Duck also opens a Windows pop-up for real errors, even in background mode.
@@ -374,6 +375,14 @@
     const paused = d.state === "paused";
     $("duck-pause").textContent = paused ? "🔊 Resume TTS" : "🔇 Pause TTS";
     $("duck-pause").className = paused ? "btn-main" : "";
+    const t = tools["yapper"], hk = t && t.extra && t.extra.hotkeys;
+    const hkEl = $("duck-hotkeys");
+    if (hk) {
+      hkEl.style.display = "";
+      hkEl.innerHTML = /^off/i.test(hk)
+        ? `⚠ <b>global hotkeys ${esc(hk)}</b>`
+        : `⌨ global hotkeys — ${esc(hk)}`;
+    } else hkEl.style.display = "none";
     renderVoices();
   }
 

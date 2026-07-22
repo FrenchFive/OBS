@@ -23,27 +23,41 @@
   }
 
   header {
-    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    display: flex; flex-direction: column; gap: 8px; padding: 9px 14px;
     border-bottom: 1px solid var(--line); background: var(--panel);
-    position: sticky; top: 0; z-index: 5; flex: none; flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 5; flex: none;
   }
-  header h1 { font-size: 14px; letter-spacing: 2px; white-space: nowrap; }
+  .hrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  header h1 { font-size: 13px; letter-spacing: 2px; white-space: nowrap; margin-right: auto; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #3a3a3a; flex: none; }
   .dot.on { background: #fff; box-shadow: 0 0 7px rgba(255,255,255,.8); }
   .dot.mid { background: #bbb; animation: pulse 1.2s infinite; }
+  .dot.err { background: transparent; border: 2px solid #fff; width: 7px; height: 7px; }
   @keyframes pulse { 50% { opacity: .25; } }
   .chip { display: flex; align-items: center; gap: 6px; font-size: 12px;
           color: var(--muted); border: 1px solid var(--line); border-radius: 8px;
           padding: 4px 10px; white-space: nowrap; }
   .spacer { flex: 1; }
+  .grp { display: flex; gap: 6px; flex: none; }   /* buttons that stay together */
   button {
-    border: 1px solid var(--line); border-radius: 8px; padding: 7px 13px;
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px;
     font-size: 13px; font-weight: 600; cursor: pointer;
     color: var(--muted); background: var(--panel2); transition: .15s;
     white-space: nowrap;
   }
   button:hover { color: #fff; border-color: #fff; }
+  button:focus:not(:focus-visible) { outline: none; }
+  button.active { background: #fff; color: #000; border-color: #fff; }
   .size-btn { padding: 7px 11px; font-variant-numeric: tabular-nums; }
+
+  #duck-strip {
+    display: flex; align-items: baseline; gap: 8px; font-size: 12.5px;
+    color: var(--muted); line-height: 1.4; min-width: 0;
+  }
+  #duck-strip .dot { align-self: center; }
+  #duck-strip b { color: var(--text); white-space: nowrap; }
+  #duck-strip .detail { overflow-wrap: anywhere; }
+  #duck-strip .warn { color: #fff; font-weight: 700; }
 
   #feed {
     flex: 1; overflow-y: auto; padding: 14px 18px 24px;
@@ -87,13 +101,28 @@
 </head>
 <body>
 <header>
-  <h1>📖 BROADCASTER VIEW</h1>
-  <span class="chip"><span class="dot" id="tw-dot"></span>Twitch</span>
-  <span class="chip"><span class="dot" id="yt-dot"></span>YouTube</span>
-  <span class="spacer"></span>
-  <button class="size-btn" id="smaller" title="smaller text">A−</button>
-  <button class="size-btn" id="bigger" title="bigger text">A+</button>
-  <button id="clear" title="Wipe the chat everywhere: here, dashboard and OBS overlay">🧹 Clear chat</button>
+  <div class="hrow">
+    <h1>📖 BROADCASTER VIEW</h1>
+    <span class="chip"><span class="dot" id="tw-dot"></span>Twitch</span>
+    <span class="chip"><span class="dot" id="yt-dot"></span>YouTube</span>
+  </div>
+  <div class="hrow">
+    <span class="grp">
+      <button class="size-btn" id="smaller" title="smaller text">A−</button>
+      <button class="size-btn" id="bigger" title="bigger text">A+</button>
+    </span>
+    <span class="grp">
+      <button id="duck-skip" title="Cut the message the Duck is speaking right now">⏭ Skip</button>
+      <button id="duck-pause" title="Mute/unmute the Duck's TTS">🔇 Pause</button>
+    </span>
+    <span class="spacer"></span>
+    <button id="clear" title="Wipe the chat everywhere: here, dashboard and OBS overlay">🧹 Clear</button>
+  </div>
+  <div id="duck-strip">
+    <span class="dot" id="duck-dot"></span>
+    <b>🦆 Duck</b>
+    <span class="detail" id="duck-detail">not running — start it with OBS or CHAT_YAPPER\run.bat</span>
+  </div>
 </header>
 
 <div id="feed"></div>
@@ -195,6 +224,50 @@
                     : (s.state === "connecting" || s.state === "waiting") ? "mid" : "");
   }
 
+  // -------------------------------------------------- duck status + controls
+  let duck = null;   // last tool heartbeat from the Duck
+  const DUCK_STALE_S = 25;
+
+  function renderDuck() {
+    const dot = $("duck-dot"), detail = $("duck-detail"), pauseBtn = $("duck-pause");
+    if (!duck) {
+      dot.className = "dot";
+      detail.textContent = "not running — start it with OBS or CHAT_YAPPER\\run.bat";
+      pauseBtn.textContent = "🔇 Pause";
+      pauseBtn.className = "";
+      return;
+    }
+    const age = Date.now() / 1000 - duck.updated;
+    if (age > DUCK_STALE_S) {
+      dot.className = "dot err";
+      detail.innerHTML = `<span class="warn">not running</span> — stopped reporting ${Math.round(age)}s ago`;
+      return;
+    }
+    const paused = duck.state === "paused";
+    dot.className = "dot " + (duck.state === "connected" ? "on"
+                    : paused ? "err" : duck.state === "error" ? "err" : "mid");
+    const labels = { connected: "connected", ready: "waiting for chat hub",
+                     "waiting-obs": "waiting for OBS", starting: "starting…",
+                     paused: "PAUSED — muted", error: "problem" };
+    let html = `<b>${esc(labels[duck.state] || duck.state)}</b>`;
+    if (duck.detail) html += ` — ${esc(duck.detail)}`;
+    const hk = duck.extra && duck.extra.hotkeys;
+    if (hk && /^off/i.test(hk)) html += ` · <span class="warn">⚠ hotkeys ${esc(hk)}</span>`;
+    detail.innerHTML = html;
+    pauseBtn.textContent = paused ? "🔊 Resume" : "🔇 Pause";
+    pauseBtn.className = paused ? "active" : "";
+  }
+  setInterval(renderDuck, 5000);
+
+  $("duck-skip").onclick = () =>
+    fetch("/api/duck/skip", { method: "POST" })
+      .then(r => { if (!r.ok) throw 0; toast("Skipped"); })
+      .catch(() => toast("⚠ server offline?"));
+  $("duck-pause").onclick = () =>
+    fetch("/api/duck/toggle", { method: "POST" })
+      .then(r => { if (!r.ok) throw 0; })
+      .catch(() => toast("⚠ server offline?"));
+
   // ------------------------------------------------------------ websocket
   function connect() {
     const ws = new WebSocket(`ws://${location.host}/ws`);
@@ -203,10 +276,13 @@
       const { type, data } = JSON.parse(ev.data);
       if (type === "chat") addMessage(data);
       else if (type === "status") setPlatform(data);
+      else if (type === "tool") { if (data.tool === "yapper") { duck = data; renderDuck(); } }
       else if (type === "clear") {
         feed.innerHTML = ""; missed = 0; pill.style.display = "none";
       } else if (type === "hello") {
         Object.values(data.status || {}).forEach(setPlatform);
+        if (data.tools && data.tools.yapper) { duck = data.tools.yapper; }
+        renderDuck();
         (data.history || []).forEach(m => addMessage(m, false));
         toBottom();
       }

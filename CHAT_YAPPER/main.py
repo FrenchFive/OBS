@@ -225,10 +225,12 @@ async def status_reporter():
                 if DROPPED:
                     detail += f" · {DROPPED} skipped in spam"
             payload = {"tool": "yapper", "state": STATUS["state"], "detail": detail}
+            extra = {"hotkeys": HOTKEY_STATE}
             if VOICE_CATALOG:
-                payload["extra"] = {"voices": VOICE_CATALOG,
-                                    "selected": ELEVENLABS_VOICES,
-                                    "defaults": DEFAULT_ELEVEN_VOICES}
+                extra.update({"voices": VOICE_CATALOG,
+                              "selected": ELEVENLABS_VOICES,
+                              "defaults": DEFAULT_ELEVEN_VOICES})
+            payload["extra"] = extra
             try:
                 await session.post(url, json=payload,
                                    timeout=aiohttp.ClientTimeout(total=4))
@@ -724,31 +726,81 @@ def toggle_pause():
     set_paused(not COMP["paused"])
 
 
+HOTKEY_STATE = "off"
+
+
+def _parse_combo(combo: str):
+    parts = [p.strip().lower() for p in combo.split("+") if p.strip()]
+    return (parts[:-1], parts[-1]) if parts else ([], None)
+
+
 def register_hotkeys():
-    """System-wide hotkeys - they work whatever window has focus."""
-    if not (HOTKEY_SKIP or HOTKEY_PAUSE):
+    """System-wide hotkeys - they work whatever window has focus.
+
+    Uses a raw keyboard hook matched by KEY NAME instead of add_hotkey's
+    scan codes: F13-F24 have no scan code on most layouts and Stream Decks
+    send synthetic key events, so name matching is the only thing that
+    works reliably for them.
+    """
+    global HOTKEY_STATE
+    wanted = [(c, a) for c, a in ((HOTKEY_SKIP, "skip"), (HOTKEY_PAUSE, "pause")) if c]
+    if not wanted:
+        HOTKEY_STATE = "off"
         return
     try:
         import keyboard
     except Exception as e:
+        HOTKEY_STATE = "OFF - re-run install.bat"
         warn_once("hotkeys",
-                  f"global hotkeys unavailable ({e}) - re-run install.bat. "
-                  "The dashboard buttons and Stream Deck URLs still work.")
+                  f"Global hotkeys are OFF ({e}).\n\n"
+                  "Re-run install.bat in the CHAT_YAPPER folder once to enable "
+                  "them.\nThe dashboard/broadcaster buttons and Stream Deck "
+                  "URLs still work.",
+                  show_popup=True)
         return
+
+    bindings = []
+    for combo, action in wanted:
+        mods, key = _parse_combo(combo)
+        if key:
+            bindings.append((mods, key, action))
+    last_fire = {}
+
+    def on_event(event):
+        # keyboard runs this on its own thread: only touch thread-safe things
+        # directly, marshal the rest onto the asyncio loop.
+        try:
+            if event.event_type != "down" or not event.name:
+                return
+            name = event.name.lower()
+            for mods, key, action in bindings:
+                if name != key:
+                    continue
+                if mods and not all(keyboard.is_pressed(m) for m in mods):
+                    continue
+                now = time.time()
+                if now - last_fire.get(action, 0) < 0.3:   # key-repeat guard
+                    return
+                last_fire[action] = now
+                print(f"-- hotkey {'+'.join(mods + [key])} -> {action.upper()}")
+                if action == "skip":
+                    skip_current()
+                elif LOOP:
+                    LOOP.call_soon_threadsafe(toggle_pause)
+                return
+        except Exception:
+            pass
+
     try:
-        # keyboard runs callbacks on its own thread: only touch thread-safe
-        # things directly, marshal the rest onto the asyncio loop.
-        if HOTKEY_SKIP:
-            keyboard.add_hotkey(HOTKEY_SKIP, skip_current)
-        if HOTKEY_PAUSE:
-            keyboard.add_hotkey(
-                HOTKEY_PAUSE,
-                lambda: LOOP and LOOP.call_soon_threadsafe(toggle_pause))
-        print(f"-- global hotkeys ready: SKIP = {HOTKEY_SKIP or '(off)'} · "
-              f"PAUSE/RESUME = {HOTKEY_PAUSE or '(off)'}")
+        keyboard.hook(on_event)
+        HOTKEY_STATE = " · ".join(f"{a}: {c}" for c, a in wanted)
+        print("-- global hotkeys ready: " + HOTKEY_STATE)
     except Exception as e:
-        warn_once("hotkeys", f"could not register hotkeys ({e}) - "
-                  "dashboard buttons and Stream Deck URLs still work.")
+        HOTKEY_STATE = f"OFF ({e})"
+        warn_once("hotkeys",
+                  f"Could not hook global hotkeys ({e}).\n\nThe dashboard/"
+                  "broadcaster buttons and Stream Deck URLs still work.",
+                  show_popup=True)
 
 
 def handle_command(cmd: dict):

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rounded corner mask generator</title>
+<style>
+  /* Generates corner-mask.png — the alpha mask that rounds the camera source in
+     OBS, so frame.html can drop its black bezel (?bezel=0).
+     Radius / margin must match the ones frame.html draws with.
+     Regenerate with:
+       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+         --headless=new --disable-gpu --default-background-color=00000000 \
+         --window-size=1920,1080 --screenshot=corner-mask.png mask.html      */
+  html, body { margin: 0; width: 1920px; height: 1080px; background: transparent; }
+  #m { position: absolute; left: 26px; top: 26px;
+       width: calc(1920px - 52px); height: calc(1080px - 52px);
+       border-radius: 44px; background: #fff; }
+</style>
+</head>
+<body><div id="m"></div></body>
+</html>

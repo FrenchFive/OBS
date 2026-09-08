@@ -12,6 +12,20 @@ Here is some code i created w/ chat for streaming.
 - [x] CHAT CONTROL KEYBOARD 
 - [x] MESSAGE VISUALISATION → **CHAT CONNECT**
 - [x] CHAT YAPPER (Duck TTS) → reads Twitch **+ YouTube** via CHAT CONNECT
+- [x] OVERLAY (camera frame + camcorder HUD)
+
+---
+## OVERLAY 🎬
+
+Two drop-in **Browser source** overlays for the camera: an **Apple-style window**
+(rounded bezel, macOS title bar, clock) and a **camcorder / surveillance HUD**
+(REC, LIVE, framing marks, time of day, name + location).
+
+No server, no dependencies — and the data is real: the timecode is the **actual
+OBS recording time**, the battery is the **computer's battery**, and **LIVE lights
+up when you go live** (via obs-websocket).
+
+➡️ [`Overlay/README.md`](Overlay/README.md)
 
 ---
 ## CHAT CONNECT 💬

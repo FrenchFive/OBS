@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store">
+<title>OVERLAY — Apple window frame</title>
+<style>
+  /* Transparent overlay for OBS browser source (1920x1080, scales to any size).
+     URL params override the defaults below:
+       ?title=Camera&sub=SESSION%20LOG&clock=1&live=auto&bezel=1
+       &radius=44&margin=26&accent=%23ff453a&locale=en-GB&hour12=0
+       &indicator=1&vignette=1&preview=1
+       &obs=1&obshost=localhost&obsport=4455&obspass=
+     The LIVE pill lights up on its own when OBS actually starts streaming.       */
+  html, body { margin: 0; padding: 0; background: rgba(0,0,0,0);
+               width: 100%; height: 100%; overflow: hidden; }
+  body.preview { background:
+      radial-gradient(120% 90% at 30% 20%, #4a5c6b 0%, #22303a 55%, #10161b 100%); }
+
+  #stage {
+    position: absolute; left: 50%; top: 50%;
+    width: 1920px; height: 1080px; transform-origin: 50% 50%;
+    color: #fff; -webkit-font-smoothing: antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+                 "Helvetica Neue", Inter, system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  #stage svg, #stage .layer { position: absolute; inset: 0; }
+  .layer { pointer-events: none; }
+
+  /* ---------------------------------------------------------- window chrome */
+  #chrome {
+    position: absolute; display: flex; align-items: center;
+    padding: 0 24px; box-sizing: border-box;
+    background: linear-gradient(180deg, rgba(42,42,46,.80) 0%, rgba(24,24,27,.68) 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.14),
+                inset 0 -1px 0 rgba(255,255,255,.07),
+                0 10px 26px rgba(0,0,0,.28);
+  }
+  #lights { display: flex; gap: 9px; align-items: center; width: 240px; }
+  .light { width: 14px; height: 14px; border-radius: 50%;
+           box-shadow: inset 0 0 0 .5px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.35); }
+  .l-red    { background: linear-gradient(180deg,#ff6b60,#ec5f55); }
+  .l-yellow { background: linear-gradient(180deg,#ffca4b,#e5b13a); }
+  .l-green  { background: linear-gradient(180deg,#4fdc6a,#3bbd53); }
+
+  #titleblock { flex: 1; text-align: center; line-height: 1.05; }
+  #title { font-size: 19px; font-weight: 590; letter-spacing: .2px; color: rgba(255,255,255,.94); }
+  #sub   { font-size: 10.5px; font-weight: 500; letter-spacing: 1.6px; margin-top: 3px;
+           text-transform: uppercase; color: rgba(255,255,255,.42); }
+
+  #tools { display: flex; align-items: center; justify-content: flex-end;
+           gap: 14px; width: 240px; }
+  #live { display: none; align-items: center; gap: 7px; height: 26px; padding: 0 11px;
+          border-radius: 13px; background: rgba(255,255,255,.10);
+          box-shadow: inset 0 0 0 .5px rgba(255,255,255,.16);
+          font-size: 11.5px; font-weight: 640; letter-spacing: 1.4px; }
+  #livedot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+             box-shadow: 0 0 10px var(--accent); animation: breathe 2.4s ease-in-out infinite; }
+  @keyframes breathe { 0%,100% { opacity: 1; transform: scale(1); }
+                       50%     { opacity: .35; transform: scale(.82); } }
+  #live.on { display: flex; }
+  #sep { width: 1px; height: 16px; background: rgba(255,255,255,.16); }
+  #clock { font-size: 15px; font-weight: 550; color: rgba(255,255,255,.88); }
+
+  /* ------------------------------------------------------- home indicator */
+  #indicator { position: absolute; left: 50%; transform: translateX(-50%);
+               width: 260px; height: 6px; border-radius: 3px;
+               background: rgba(255,255,255,.55);
+               box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <svg id="art" viewBox="0 0 1920 1080" preserveAspectRatio="none"></svg>
+  <div class="layer">
+    <div id="chrome">
+      <div id="lights">
+        <div class="light l-red"></div>
+        <div class="light l-yellow"></div>
+        <div class="light l-green"></div>
+      </div>
+      <div id="titleblock">
+        <div id="title">Daily Journal</div>
+        <div id="sub">Session Log</div>
+      </div>
+      <div id="tools">
+        <div id="live"><span id="livedot"></span>LIVE</div>
+        <div id="sep"></div>
+        <div id="clock">--:--</div>
+      </div>
+    </div>
+    <div id="indicator"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const q = new URLSearchParams(location.search);
+  const num  = (k, d) => { const v = parseFloat(q.get(k)); return Number.isFinite(v) ? v : d; };
+  const bool = (k, d) => { const v = q.get(k); return v === null ? d : /^(1|true|on|yes)$/i.test(v); };
+  const str  = (k, d) => q.get(k) ?? d;
+
+  const CFG = {
+    title:     str("title", "Camera"),
+    sub:       str("sub", "Session Log"),
+    accent:    str("accent", "#ff453a"),
+    margin:    num("margin", 26),      // bezel thickness around the window
+    radius:    num("radius", 44),      // corner radius of the window
+    chrome:    num("chrome", 58),      // title bar height
+    bezel:     bool("bezel", true),    // dark band + rounded corners over the video
+    live:      str("live", "auto"),     // "auto" = on while OBS is streaming, 1 = always
+    obs:       bool("obs", true),       // OBS ▸ Tools ▸ WebSocket Server Settings
+    obshost:   str("obshost", "localhost"),
+    obsport:   num("obsport", 4455),
+    obspass:   str("obspass", ""),
+    clock:     bool("clock", true),
+    indicator: bool("indicator", true),
+    vignette:  bool("vignette", true),
+    locale:    str("locale", "en-GB"),
+    hour12:    bool("hour12", false),
+    seconds:   bool("seconds", false),
+  };
+
+  const W = 1920, H = 1080;
+  const M = CFG.margin, R = CFG.radius;
+  const stage = document.getElementById("stage");
+  stage.style.setProperty("--accent", CFG.accent);
+  if (q.get("preview") === "1") document.body.classList.add("preview");
+
+  // ------------------------------------------------------------- scale to fit
+  const fit = () => {
+    const s = Math.min(innerWidth / W, innerHeight / H);
+    stage.style.transform = `translate(-50%, -50%) scale(${s})`;
+  };
+  addEventListener("resize", fit); fit();
+
+  // -------------------------------------------------------------- frame art
+  // Rounded-rect path used both for the bezel cut-out and for the hairline.
+  const rr = (x, y, w, h, r) =>
+    `M${x + r},${y} H${x + w - r} A${r},${r} 0 0 1 ${x + w},${y + r}` +
+    ` V${y + h - r} A${r},${r} 0 0 1 ${x + w - r},${y + h}` +
+    ` H${x + r} A${r},${r} 0 0 1 ${x},${y + h - r}` +
+    ` V${y + r} A${r},${r} 0 0 1 ${x + r},${y} Z`;
+
+  const win = rr(M, M, W - 2 * M, H - 2 * M, R);
+  const art = document.getElementById("art");
+  art.innerHTML = `
+    <defs>
+      <radialGradient id="vig" cx="50%" cy="50%" r="72%">
+        <stop offset="55%" stop-color="#000" stop-opacity="0"/>
+        <stop offset="100%" stop-color="#000" stop-opacity=".30"/>
+      </radialGradient>
+      <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0"  stop-color="#fff" stop-opacity=".62"/>
+        <stop offset=".5" stop-color="#fff" stop-opacity=".34"/>
+        <stop offset="1"  stop-color="#fff" stop-opacity=".50"/>
+      </linearGradient>
+    </defs>
+    ${CFG.vignette ? `<path d="${win}" fill="url(#vig)"/>` : ""}
+    ${CFG.bezel ? `<path d="M0,0 H${W} V${H} H0 Z ${win}" fill="#0b0b0d" fill-rule="evenodd"/>` : ""}
+    <path d="${win}" fill="none" stroke="#000" stroke-opacity=".38" stroke-width="3"/>
+    <path d="${win}" fill="none" stroke="url(#edge)" stroke-width="1.5"/>
+    <path d="${rr(M + 2, M + 2, W - 2 * M - 4, H - 2 * M - 4, R - 2)}"
+          fill="none" stroke="#fff" stroke-opacity=".07" stroke-width="1"/>`;
+
+  // ----------------------------------------------------------------- chrome
+  const chrome = document.getElementById("chrome");
+  chrome.style.left = M + "px";
+  chrome.style.top = M + "px";
+  chrome.style.width = (W - 2 * M) + "px";
+  chrome.style.height = CFG.chrome + "px";
+  chrome.style.borderRadius = `${R - 1}px ${R - 1}px 0 0`;
+
+  document.getElementById("title").textContent = CFG.title;
+  const subEl = document.getElementById("sub");
+  subEl.textContent = CFG.sub;
+  if (!CFG.sub) subEl.classList.add("hidden");
+  const liveEl = document.getElementById("live");
+  const setLive = (on) => liveEl.classList.toggle("on", on);
+  if (/^(1|true|on|yes)$/i.test(CFG.live)) setLive(true);
+  if (!CFG.clock) { document.getElementById("clock").classList.add("hidden");
+                    document.getElementById("sep").classList.add("hidden"); }
+
+  const ind = document.getElementById("indicator");
+  if (CFG.indicator) ind.style.bottom = (M + 16) + "px"; else ind.classList.add("hidden");
+
+  // ------------------------------------------------------------- obs-websocket
+  // Lights the LIVE pill only while OBS is really streaming.
+  const sha256b64 = async (str_) => {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str_));
+    return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  };
+  const connectOBS = () => {
+    let ws, alive = false;
+    try { ws = new WebSocket(`ws://${CFG.obshost}:${CFG.obsport}`); }
+    catch { return setTimeout(connectOBS, 5000); }
+
+    ws.onmessage = async (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.op === 0) {                               // Hello → Identify
+        const auth = msg.d.authentication, d = { rpcVersion: 1 };
+        if (auth) d.authentication =
+          await sha256b64(await sha256b64(CFG.obspass + auth.salt) + auth.challenge);
+        ws.send(JSON.stringify({ op: 1, d }));
+      } else if (msg.op === 2) {                        // Identified
+        alive = true; poll();
+      } else if (msg.op === 7 && msg.d.requestType === "GetStreamStatus") {
+        setLive(!!(msg.d.responseData || {}).outputActive);
+      } else if (msg.op === 5 && msg.d.eventType === "StreamStateChanged") {
+        setLive(!!msg.d.eventData.outputActive);
+      }
+    };
+    ws.onclose = () => { alive = false; setLive(false); setTimeout(connectOBS, 5000); };
+    ws.onerror = () => { try { ws.close(); } catch {} };
+
+    const poll = () => {                                // resync every 2s
+      if (!alive) return;
+      ws.send(JSON.stringify({ op: 6, d: { requestType: "GetStreamStatus",
+                                           requestId: "live" } }));
+      setTimeout(poll, 2000);
+    };
+  };
+  if (CFG.obs && CFG.live === "auto") connectOBS();
+
+  // ------------------------------------------------------------------ clock
+  const clockEl = document.getElementById("clock");
+  const tick = () => {
+    clockEl.textContent = new Date().toLocaleTimeString(CFG.locale, {
+      hour: "2-digit", minute: "2-digit",
+      second: CFG.seconds ? "2-digit" : undefined,
+      hour12: CFG.hour12,
+    });
+  };
+  tick(); setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>

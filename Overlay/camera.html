@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store">
+<title>OVERLAY — Camcorder / surveillance HUD</title>
+<style>
+  /* Transparent overlay for OBS browser source (1920x1080, scales to any size).
+     Designed to sit *inside* frame.html, but works on its own too.
+     Everything it displays is real: OBS recording timecode + state (obs-websocket)
+     and the computer battery. URL params override the defaults below:
+       ?name=FIVE%20Neo&loc=auto&rec=1&live=auto&tc=obs&res=auto&fps=auto
+       &obs=1&obshost=localhost&obsport=4455&obspass=
+       &battery=auto&disk=1&meter=1&mic=Mic%2FAux
+       &brackets=1&focus=0&ticks=1&scrim=55&shadow=100&scan=0
+       &locale=en-GB&hour12=0&preview=1                                     */
+  html, body { margin: 0; padding: 0; background: rgba(0,0,0,0);
+               width: 100%; height: 100%; overflow: hidden; }
+  body.preview { background:
+      radial-gradient(120% 90% at 30% 20%, #4a5c6b 0%, #22303a 55%, #10161b 100%); }
+
+  #stage {
+    position: absolute; left: 50%; top: 50%;
+    width: 1920px; height: 1080px; transform-origin: 50% 50%;
+    color: #fff; -webkit-font-smoothing: antialiased;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    text-shadow: var(--sh);
+  }
+  /* borders and drawn shapes can't use text-shadow, they get a drop-shadow */
+  #live, .chip, #menu i, #batt svg { filter: var(--ds); }
+  #stage svg.art { position: absolute; inset: 0; pointer-events: none; }
+  .box { position: absolute; }
+
+  /* ------------------------------------------------------------- top left */
+  #tl { display: flex; align-items: center; gap: 18px; }
+  #rec { display: flex; align-items: center; gap: 12px; }
+  #recdot { width: 22px; height: 22px; border-radius: 50%; background: #ff3b30;
+            box-shadow: 0 0 16px rgba(255,59,48,.85);
+            animation: blink 1.6s steps(1, end) infinite; }
+  @keyframes blink { 0%, 60% { opacity: 1; } 61%, 100% { opacity: .18; } }
+  #rectxt { font-size: 34px; font-weight: 700; letter-spacing: 3px; }
+  /* standby: recorder is connected but not recording */
+  #rec.standby #recdot { background: rgba(255,255,255,.8); box-shadow: none;
+                         animation: none; }
+  #rec.standby #rectxt { color: rgba(255,255,255,.85); }
+  #rec.paused #recdot { animation: breathe 1.2s ease-in-out infinite; }
+
+  #live { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 13px;
+          border: 1.5px solid rgba(255,255,255,.75); border-radius: 4px;
+          font-size: 15px; font-weight: 700; letter-spacing: 3px; }
+  #livedot { width: 9px; height: 9px; border-radius: 50%; background: #ff3b30;
+             animation: breathe 2.2s ease-in-out infinite; }
+  #live.off { opacity: .7; border-color: rgba(255,255,255,.35); }
+  #live.off #livedot { background: rgba(255,255,255,.55); animation: none; }
+  @keyframes breathe { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+
+  /* ------------------------------------------------------------ top right */
+  #tr { display: flex; align-items: center; gap: 14px;
+        font-size: 19px; font-weight: 600; letter-spacing: 2px; }
+  .chip { padding: 3px 9px; border-radius: 3px; line-height: 1.25; }
+  .chip.fill { background: #fff; color: #111; text-shadow: none; }
+  .chip.out  { border: 1.5px solid rgba(255,255,255,.85); }
+  #batt { display: flex; align-items: center; gap: 9px; }
+  #disk b { font-size: 14px; font-weight: 600; letter-spacing: 2px;
+            color: rgba(255,255,255,.55); margin-right: 7px; }
+  #disk.low { color: #ff453a; }
+  #batt.hidden, #disk.hidden, #meter.hidden { display: none; }
+
+  /* ------------------------------------------------------- mic level meter */
+  #meter { display: flex; align-items: flex-end; gap: 3px; filter: var(--ds); }
+  #meter i { width: 8px; height: 13px; border-radius: 2px;
+             background: rgba(255,255,255,.14); }
+
+  /* --------------------------------------------------------- top centered */
+  #label { position: absolute; left: 50%; transform: translateX(-50%);
+           font-size: 15px; font-weight: 600; letter-spacing: 6px;
+           color: rgba(255,255,255,.82); text-transform: uppercase; }
+
+  /* ---------------------------------------------------------- bottom left */
+  #clock { font-size: 60px; font-weight: 600; letter-spacing: 2px; line-height: 1; }
+  #date  { margin-top: 10px; font-size: 18px; letter-spacing: 4.5px;
+           color: rgba(255,255,255,.78); text-transform: uppercase; }
+  #session { margin-top: 7px; font-size: 15px; letter-spacing: 3px;
+             color: rgba(255,255,255,.72); }
+
+  /* -------------------------------------------------------- bottom center */
+  #tc { position: absolute; left: 50%; transform: translateX(-50%);
+        display: flex; align-items: baseline; gap: 12px; }
+  #tclabel { font-size: 14px; letter-spacing: 3px; color: rgba(255,255,255,.8); }
+  #tcval { font-size: 26px; font-weight: 600; letter-spacing: 3px; }
+  #tc.idle #tcval { color: rgba(255,255,255,.75); }
+
+  /* --------------------------------------------------------- bottom right */
+  #br { text-align: right; }
+  #name { font-size: 22px; font-weight: 600; letter-spacing: 4px;
+          color: rgba(255,255,255,.9); }
+  #loc  { margin-top: 8px; font-size: 16px; letter-spacing: 3px;
+          color: rgba(255,255,255,.85); }
+  #menu { margin-top: 14px; display: inline-flex; align-items: center; gap: 10px;
+          font-size: 20px; font-weight: 600; letter-spacing: 4px; }
+  #menu span { display: inline-block; width: 22px; }
+  #menu i { display: block; height: 2px; background: #fff; margin: 4px 0;
+            border-radius: 1px; }
+  #menu i:nth-child(2) { width: 70%; }
+
+  .scrim { position: absolute; left: 0; right: 0; pointer-events: none; }
+  #scrimtop { top: 0; height: 340px; background: linear-gradient(180deg,
+      rgba(0,0,0,var(--scrim)) 0%,
+      rgba(0,0,0,calc(var(--scrim) * .45)) 45%, rgba(0,0,0,0) 100%); }
+  #scrimbot { bottom: 0; height: 380px; background: linear-gradient(0deg,
+      rgba(0,0,0,calc(var(--scrim) * 1.05)) 0%,
+      rgba(0,0,0,calc(var(--scrim) * .45)) 45%, rgba(0,0,0,0) 100%); }
+
+  #scan { position: absolute; inset: 0; pointer-events: none; opacity: .10;
+          background: repeating-linear-gradient(180deg,
+            rgba(255,255,255,.9) 0px, rgba(255,255,255,.9) 1px,
+            rgba(0,0,0,0) 1px, rgba(0,0,0,0) 4px); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="scrim" id="scrimtop"></div>
+  <div class="scrim" id="scrimbot"></div>
+  <svg class="art" id="art" viewBox="0 0 1920 1080" preserveAspectRatio="none"></svg>
+
+  <div class="box" id="meter"></div>
+
+  <div class="box" id="tl">
+    <div id="rec"><span id="recdot"></span><span id="rectxt">REC</span></div>
+    <div id="live"><span id="livedot"></span>LIVE</div>
+  </div>
+
+  <div class="box" id="tr">
+    <span class="chip fill" id="grade">HD</span>
+    <span class="chip out" id="res">1080p</span>
+    <span id="fpstxt">30FPS</span>
+    <span id="disk" class="hidden"></span>
+    <span id="batt" class="hidden"></span>
+  </div>
+
+  <div id="label"></div>
+
+  <div class="box" id="bl">
+    <div id="clock">--:--:--</div>
+    <div id="date"></div>
+    <div id="session"></div>
+  </div>
+
+  <div id="tc"><span id="tclabel">TC</span><span id="tcval">00:00:00:00</span></div>
+
+  <div class="box" id="br">
+    <div id="name">FIVE Neo</div>
+    <div id="loc"></div>
+    <div id="menu">MENU <span><i></i><i></i><i></i></span></div>
+  </div>
+
+  <div id="scan" class="hidden"></div>
+</div>
+
+<script>
+(() => {
+  const q = new URLSearchParams(location.search);
+  const num  = (k, d) => { const v = parseFloat(q.get(k)); return Number.isFinite(v) ? v : d; };
+  const bool = (k, d) => { const v = q.get(k); return v === null ? d : /^(1|true|on|yes)$/i.test(v); };
+  const str  = (k, d) => q.get(k) ?? d;
+
+  const CFG = {
+    name:     str("name", "FIVE Neo"),   // bottom-right signature
+    label:    str("label", ""),          // top-centre caption, e.g. ?label=Daily%20Journal
+    loc:      str("loc", "auto"),        // "auto" = city + UTC offset from the system
+                                         // clock, "off", or any text: ?loc=Paris%2C%20FR
+    rec:      bool("rec", true),
+    live:     str("live", "auto"),       // "auto" = lights up while OBS streams, 1 = always
+    res:      str("res", "auto"),        // "auto" = read OBS's real output size
+    fps:      str("fps", "auto"),        // "auto" = read OBS's real frame rate
+    disk:     bool("disk", true),        // free disk space, from OBS
+    meter:    bool("meter", true),       // mic level meter
+    mic:      str("mic", ""),            // input name; empty = pick the mic itself
+    tc:       str("tc", "obs"),          // "obs" (OBS recording) | "elapsed" | "clock"
+    session:  bool("session", true),
+    battery:  str("battery", "auto"),    // "auto" = real battery, "off", or a number
+    brackets: bool("brackets", true),    // big corner framing marks
+    inset:    num("inset", 62),          // corner marks: distance from the sides
+    topinset: num("topinset", 104),      // corner marks: distance from the top
+    focus:    bool("focus", false),      // centre focus brackets (off by default)
+    ticks:    bool("ticks", true),       // small edge marks
+    scan:     bool("scan", false),
+    scrim:    num("scrim", 55),          // 0-100: soft dark bands behind the HUD
+    shadow:   num("shadow", 100),        // 0-200: strength of the text shadow
+    margin:   num("margin", 112),        // side padding
+    top:      num("top", 140),           // clears frame.html's title bar
+    bottom:   num("bottom", 112),
+    locale:   str("locale", "en-GB"),
+    hour12:   bool("hour12", false),
+    // obs-websocket (OBS ▸ Tools ▸ WebSocket Server Settings)
+    obs:      bool("obs", true),
+    obshost:  str("obshost", "localhost"),
+    obsport:  num("obsport", 4455),
+    obspass:  str("obspass", ""),
+  };
+
+  const W = 1920, H = 1080;
+  const stage = document.getElementById("stage");
+  if (q.get("preview") === "1") document.body.classList.add("preview");
+
+  // ------------------------------------------------- legibility on bright shots
+  const k = Math.max(0, CFG.shadow) / 100;
+  stage.style.setProperty("--sh",
+    `0 2px 10px rgba(0,0,0,${.75 * k}), 0 0 22px rgba(0,0,0,${.55 * k}),` +
+    ` 0 1px 2px rgba(0,0,0,${.9 * k})`);
+  stage.style.setProperty("--ds",
+    `drop-shadow(0 2px 5px rgba(0,0,0,${.8 * k})) drop-shadow(0 0 14px rgba(0,0,0,${.5 * k}))`);
+  stage.style.setProperty("--scrim", Math.max(0, Math.min(100, CFG.scrim)) / 100);
+
+  // ------------------------------------------------------------- scale to fit
+  const fit = () => {
+    const s = Math.min(innerWidth / W, innerHeight / H);
+    stage.style.transform = `translate(-50%, -50%) scale(${s})`;
+  };
+  addEventListener("resize", fit); fit();
+
+  // ------------------------------------------------------------ place blocks
+  const M = CFG.margin, T = CFG.top, B = CFG.bottom;
+  const put = (id, css) => Object.assign(document.getElementById(id).style, css);
+  put("tl",    { left: M + "px", top: T + "px" });
+  put("meter", { left: M + "px", top: (T + 58) + "px" });
+  put("tr",    { right: M + "px", top: (T + 2) + "px" });
+  put("label", { top: (T + 6) + "px" });
+  put("bl",    { left: M + "px", bottom: B + "px" });
+  put("br",    { right: M + "px", bottom: B + "px" });
+  put("tc",    { bottom: (B - 8) + "px" });
+
+  // -------------------------------------------------------- framing marks
+  const L = 118, TH = 3, IN = CFG.inset, TI = CFG.topinset;  // arm length, thickness, insets
+  const bar = (x, y, w, h, o) =>
+    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${Math.min(w, h) / 2}"
+           fill="#fff" fill-opacity="${o}"/>`;
+  const corner = (x, y, sx, sy, len, th, o) => {
+    const hx = sx > 0 ? x : x - len, vy = sy > 0 ? y : y - len;
+    return bar(hx, y - th / 2, len, th, o) + bar(x - th / 2, vy, th, len, o);
+  };
+
+  let svg = `<g filter="url(#soft)">`;
+  if (CFG.brackets) {
+    svg += corner(IN, TI, 1, 1, L, TH, .92);
+    svg += corner(W - IN, TI, -1, 1, L, TH, .92);
+    svg += corner(IN, H - IN, 1, -1, L, TH, .92);
+    svg += corner(W - IN, H - IN, -1, -1, L, TH, .92);
+  }
+  if (CFG.focus) {
+    const fw = 420, fh = 300, fl = 46, ft = 2.5, o = .72;
+    const x0 = (W - fw) / 2, y0 = (H - fh) / 2, x1 = x0 + fw, y1 = y0 + fh;
+    svg += corner(x0, y0, 1, 1, fl, ft, o) + corner(x1, y0, -1, 1, fl, ft, o) +
+           corner(x0, y1, 1, -1, fl, ft, o) + corner(x1, y1, -1, -1, fl, ft, o);
+  }
+  if (CFG.ticks) {                                // small ruler marks, mid edges
+    for (const [x, y, w, h] of [[W / 2 - 1.5, TI, 3, 26],
+                                [IN, H / 2 - 1.5, 26, 3], [W - IN - 26, H / 2 - 1.5, 26, 3]])
+      svg += bar(x, y, w, h, .55);
+  }
+  svg += `</g>`;
+  document.getElementById("art").innerHTML =
+    `<defs><filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+       <feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="#000" flood-opacity=".8"/>
+     </filter></defs>` + svg;
+
+  // ------------------------------------------------------------- static bits
+  const recEl = document.getElementById("rec");
+  const liveEl = document.getElementById("live");
+  if (!CFG.rec) recEl.classList.add("hidden");
+  const LIVE_AUTO = !/^(0|false|off|no)$/i.test(CFG.live) && !/^(1|true|on|yes)$/i.test(CFG.live);
+  if (/^(0|false|off|no)$/i.test(CFG.live)) liveEl.classList.add("hidden");
+  else if (LIVE_AUTO) liveEl.classList.add("off");     // unlit until OBS goes live
+  // format chips — filled in from OBS when set to "auto", otherwise your own text
+  const FMT = { fps: parseFloat(CFG.fps) || 30 };
+  const resEl = document.getElementById("res"), gradeEl = document.getElementById("grade"),
+        fpsEl = document.getElementById("fpstxt"), diskEl = document.getElementById("disk");
+
+  const setFormat = (w, h, fps) => {
+    if (CFG.res === "auto" && h) {
+      resEl.textContent = h >= 2160 ? "4K" : h >= 1440 ? "1440p" : h >= 1080 ? "1080p"
+                        : h >= 720 ? "720p" : h + "p";
+      gradeEl.textContent = h >= 2160 ? "UHD" : h >= 720 ? "HD" : "SD";
+    }
+    if (CFG.fps === "auto" && fps) { FMT.fps = fps; fpsEl.textContent = Math.round(fps) + "FPS"; }
+  };
+  const setDisk = (mb) => {
+    if (!CFG.disk || !(mb > 0)) return;
+    diskEl.innerHTML = "<b>FREE</b>" + (mb >= 1048576 ? (mb / 1048576).toFixed(1) + "TB"
+                                      : mb >= 1024 ? Math.round(mb / 1024) + "GB"
+                                      : Math.round(mb) + "MB");
+    diskEl.classList.toggle("low", mb < 10240);      // under 10 GB
+    diskEl.classList.remove("hidden");
+  };
+  if (CFG.res !== "auto") { resEl.textContent = CFG.res; gradeEl.textContent = "HD"; }
+  if (CFG.fps !== "auto") fpsEl.textContent = Math.round(FMT.fps) + "FPS";
+  document.getElementById("label").textContent = CFG.label;
+  document.getElementById("name").textContent = CFG.name;
+
+  // location: taken from the system time zone unless you pass your own text
+  const locEl = document.getElementById("loc");
+  if (/^(0|false|off|no)$/i.test(CFG.loc)) locEl.classList.add("hidden");
+  else if (CFG.loc !== "auto") locEl.textContent = CFG.loc;
+  else {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    const city = (tz.split("/").pop() || "").replace(/_/g, " ").toUpperCase();
+    const off = -new Date().getTimezoneOffset() / 60;
+    const utc = "UTC" + (off >= 0 ? "+" : "-") + Math.abs(off).toString().replace(".5", ":30");
+    locEl.textContent = city ? `${city} · ${utc}` : utc;
+  }
+  if (CFG.scan) document.getElementById("scan").classList.remove("hidden");
+
+  // ----------------------------------------------------------- real battery
+  const battEl = document.getElementById("batt");
+  const drawBattery = (level, charging) => {          // level 0..1
+    const pct = Math.round(level * 100);
+    const col = pct <= 20 && !charging ? "#ff453a" : "#32d74b";
+    const bars = Math.max(0, Math.min(4, Math.round(pct / 25)));
+    const x0 = charging ? 16 : 0;                   // shift the shell to fit the bolt
+    battEl.innerHTML = `
+      <svg width="${52 + x0}" height="26" viewBox="0 0 ${52 + x0} 26" style="overflow:visible">
+        ${charging ? `<path d="M9 1 L1 14 H6 L4 25 L13 11 H7 Z" fill="#fff" fill-opacity=".9"/>` : ""}
+        <rect x="${x0 + 1}" y="1" width="44" height="24" rx="5" fill="none"
+              stroke="#fff" stroke-opacity=".85" stroke-width="2"/>
+        <rect x="${x0 + 47}" y="9" width="4" height="8" rx="2" fill="#fff" fill-opacity=".85"/>
+        ${[0, 1, 2, 3].slice(0, bars).map(i =>
+          `<rect x="${x0 + 5 + i * 10}" y="5" width="7" height="16" rx="2" fill="${col}"/>`).join("")}
+      </svg><span style="font-size:19px;font-weight:600">${pct}%</span>`;
+    battEl.classList.remove("hidden");
+  };
+
+  if (CFG.battery !== "off") {
+    const fixed = parseFloat(CFG.battery);
+    if (Number.isFinite(fixed)) {
+      drawBattery(Math.max(0, Math.min(100, fixed)) / 100, false);
+    } else if (navigator.getBattery) {                 // real machine battery
+      navigator.getBattery().then(b => {
+        const sync = () => drawBattery(b.level, b.charging);
+        b.addEventListener("levelchange", sync);
+        b.addEventListener("chargingchange", sync);
+        sync();
+      }).catch(() => {});                              // desktop with no battery
+    }
+  }
+
+  // -------------------------------------------------------- mic level meter
+  // Fed by the InputVolumeMeters event; hidden until OBS actually sends levels.
+  const SEGS = 26, meterEl = document.getElementById("meter");
+  const AUD = { level: 0, peak: 0, peakAt: 0, seen: false, lit: -1 };
+  if (CFG.meter) {
+    for (let i = 0; i < SEGS; i++) {
+      const db = -60 + ((i + 1) / SEGS) * 60;        // dB this segment stands for
+      const seg = document.createElement("i");
+      seg.dataset.c = db > -6 ? "#ff453a" : db > -20 ? "#ffd60a" : "#32d74b";
+      seg.style.height = (13 + i * 0.45) + "px";     // slight ramp, camcorder style
+      meterEl.appendChild(seg);
+    }
+  }
+  meterEl.classList.add("hidden");
+
+  const dbNorm = (mul) => Math.max(0, Math.min(1, (20 * Math.log10(mul || 1e-9) + 60) / 60));
+  const paintMeter = () => {
+    if (!CFG.meter || !AUD.seen) return;
+    const lit = Math.round(AUD.level * SEGS), pk = Math.round(AUD.peak * SEGS);
+    if (lit === AUD.lit && pk === AUD.pk) return;    // only touch the DOM on change
+    AUD.lit = lit; AUD.pk = pk;
+    [...meterEl.children].forEach((seg, i) => {
+      seg.style.background = i < lit ? seg.dataset.c
+                           : i === pk - 1 ? "rgba(255,255,255,.75)"
+                           : "rgba(255,255,255,.14)";
+    });
+  };
+
+  // ------------------------------------------------------------- obs-websocket
+  // Reads the *real* recording timecode and the record / stream state.
+  // Silently falls back to a local timer when OBS is unreachable.
+  const OBS = { on: false, recording: false, paused: false, streaming: false,
+                secs: 0, at: performance.now() };
+
+  const sha256b64 = async (s) => {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+    return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  };
+  const tcToSecs = (t) => {                            // "HH:MM:SS.mmm"
+    const m = /^(\d+):(\d+):(\d+)(?:\.(\d+))?$/.exec(t || "");
+    return m ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) + (m[4] ? +("0." + m[4]) : 0) : 0;
+  };
+
+  const connectOBS = () => {
+    let ws, rid = 0, alive = false;
+    const pending = new Map();
+    const send = (type, data) => {
+      if (!alive) return Promise.reject();
+      const id = String(++rid);
+      ws.send(JSON.stringify({ op: 6, d: { requestType: type, requestId: id,
+                                           requestData: data || {} } }));
+      return new Promise(res => pending.set(id, res));
+    };
+
+    try { ws = new WebSocket(`ws://${CFG.obshost}:${CFG.obsport}`); }
+    catch { return setTimeout(connectOBS, 5000); }
+
+    ws.onmessage = async (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.op === 0) {                              // Hello → Identify
+        const auth = msg.d.authentication;
+        // 2047 = all normal events, 65536 = InputVolumeMeters (high volume, opt-in)
+        const d = { rpcVersion: 1, eventSubscriptions: CFG.meter ? 2047 | 65536 : 2047 };
+        if (auth) d.authentication =
+          await sha256b64(await sha256b64(CFG.obspass + auth.salt) + auth.challenge);
+        ws.send(JSON.stringify({ op: 1, d }));
+      } else if (msg.op === 2) {                       // Identified
+        alive = true; OBS.on = true;
+        poll();
+      } else if (msg.op === 7) {                       // request response
+        const res = pending.get(msg.d.requestId);
+        if (res) { pending.delete(msg.d.requestId); res(msg.d.responseData || {}); }
+      } else if (msg.op === 5) {                       // events
+        const t = msg.d.eventType, e = msg.d.eventData || {};
+        if (t === "RecordStateChanged") {
+          OBS.recording = !!e.outputActive;
+          OBS.paused = e.outputState === "OBS_WEBSOCKET_OUTPUT_PAUSED";
+          if (!OBS.recording) { OBS.secs = 0; OBS.at = performance.now(); }
+        } else if (t === "StreamStateChanged") {
+          OBS.streaming = !!e.outputActive;
+        } else if (t === "InputVolumeMeters" && CFG.meter) {
+          const ins = e.inputs || [];
+          const src = CFG.mic ? ins.find(i => i.inputName === CFG.mic)
+                    : ins.find(i => /mic|aux|micro/i.test(i.inputName)) || ins[0];
+          const chans = src && src.inputLevelsMul || [];
+          if (chans.length) {
+            const lvl = dbNorm(Math.max(...chans.map(c => c[0] || 0)));
+            AUD.level = Math.max(lvl, AUD.level * 0.75);      // quick rise, soft fall
+            if (lvl >= AUD.peak) { AUD.peak = lvl; AUD.peakAt = performance.now(); }
+            if (!AUD.seen) { AUD.seen = true; meterEl.classList.remove("hidden"); }
+          }
+        }
+      }
+    };
+    ws.onclose = () => { alive = false; OBS.on = false; OBS.recording = false;
+                         OBS.streaming = false; setTimeout(connectOBS, 5000); };
+    ws.onerror = () => { try { ws.close(); } catch {} };
+
+    let ticks = 0;
+    const poll = async () => {                         // resync once a second
+      if (!alive) return;
+      try {
+        if (ticks++ % 10 === 0) {                      // slow lane: format + disk
+          const [v, st] = await Promise.all([send("GetVideoSettings"), send("GetStats")]);
+          setFormat(v.outputWidth, v.outputHeight,
+                    v.fpsNumerator / (v.fpsDenominator || 1));
+          setDisk(st.availableDiskSpace);
+        }
+        const [r, s] = await Promise.all([send("GetRecordStatus"), send("GetStreamStatus")]);
+        OBS.recording = !!r.outputActive;
+        OBS.paused = !!r.outputPaused;
+        OBS.secs = r.outputTimecode ? tcToSecs(r.outputTimecode)
+                                    : (r.outputDuration || 0) / 1000;
+        OBS.at = performance.now();
+        OBS.streaming = !!s.outputActive;
+      } catch {}
+      setTimeout(poll, 1000);
+    };
+  };
+  if (CFG.obs) connectOBS();
+
+  // ----------------------------------------------------------- time & code
+  const pad = (n, l = 2) => String(Math.floor(n)).padStart(l, "0");
+  const hms = (t) => `${pad(t / 3600)}:${pad((t / 60) % 60)}:${pad(t % 60)}`;
+  const clockEl = document.getElementById("clock");
+  const dateEl  = document.getElementById("date");
+  const sessEl  = document.getElementById("session");
+  const tcBox   = document.getElementById("tc");
+  const tcEl    = document.getElementById("tcval");
+  const tcLabel = document.getElementById("tclabel");
+  if (!CFG.session) sessEl.classList.add("hidden");
+
+  const start = Date.now();
+  const draw = () => {
+    const now = new Date();
+    clockEl.textContent = now.toLocaleTimeString(CFG.locale,
+      { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: CFG.hour12 });
+    dateEl.textContent = now.toLocaleDateString(CFG.locale,
+      { weekday: "short", day: "2-digit", month: "short", year: "numeric" })
+      .replace(/,/g, "");
+
+    const up = (Date.now() - start) / 1000;
+    sessEl.textContent = "SESSION " + hms(up);
+
+    // ---- timecode: real OBS recording time when we have it
+    let t, label, idle = false;
+    if (CFG.tc === "clock") {
+      t = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()
+          + now.getMilliseconds() / 1000;
+      label = "TOD";
+    } else if (CFG.tc === "obs" && OBS.on) {
+      t = OBS.recording && !OBS.paused
+        ? OBS.secs + (performance.now() - OBS.at) / 1000
+        : OBS.secs;
+      label = OBS.recording ? (OBS.paused ? "PAUSE" : "REC") : "STBY";
+      idle = !OBS.recording;
+    } else {
+      t = up; label = "TC";
+    }
+    tcLabel.textContent = label;
+    tcBox.classList.toggle("idle", idle);
+    tcEl.textContent = hms(t) + ":" + pad((t % 1) * FMT.fps);
+
+    // ---- REC / LIVE reflect what OBS is actually doing
+    if (OBS.on) {
+      recEl.classList.toggle("standby", !OBS.recording);
+      recEl.classList.toggle("paused", OBS.recording && OBS.paused);
+      document.getElementById("rectxt").textContent =
+        OBS.recording ? (OBS.paused ? "PAUSE" : "REC") : "STBY";
+      if (LIVE_AUTO) liveEl.classList.toggle("off", !OBS.streaming);
+    }
+    // ---- mic meter: decay the bar and let the peak marker fall back
+    if (CFG.meter && AUD.seen) {
+      AUD.level *= 0.90;
+      if (performance.now() - AUD.peakAt > 900) AUD.peak *= 0.94;
+      paintMeter();
+    }
+    requestAnimationFrame(draw);
+  };
+  draw();
+})();
+</script>
+</body>
+</html>
